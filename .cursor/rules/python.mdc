@@ -14,12 +14,293 @@ alwaysApply: false
 - Add docstrings to all public functions, classes, and modules using Google style
 - Use meaningful variable names and avoid abbreviations
 
-## Type Hints
+## Type Safety & Type Hints
 
-- Always use type hints for function parameters and return values
-- Use modern typing features (e.g., `list[str]` instead of `List[str]`)
-- Use `typing.Protocol` for structural typing when appropriate
-- Import types from `typing` module when needed for Python < 3.9 compatibility
+### Basic Type Annotations
+- **ALWAYS** use type hints for function parameters and return values
+- Use modern typing features (e.g., `list[str]` instead of `List[str]` for Python 3.9+)
+- Annotate all class attributes and instance variables
+- Use `typing.Final` for constants that should not be reassigned
+
+```python
+from typing import Final, Optional, Union
+from collections.abc import Sequence
+
+# Constants
+MAX_RETRIES: Final[int] = 3
+API_BASE_URL: Final[str] = "https://api.example.com"
+
+# Function with complete type annotations
+def process_data(
+    items: Sequence[str], 
+    timeout: float = 30.0,
+    strict_mode: bool = False
+) -> dict[str, int]:
+    """Process items and return result mapping."""
+    pass
+
+# Class with annotated attributes
+class DataProcessor:
+    def __init__(self, config: dict[str, str]) -> None:
+        self.config: dict[str, str] = config.copy()
+        self.cache: dict[str, Any] = {}
+        self.processed_count: int = 0
+```
+
+### Advanced Type Annotations
+
+#### Generic Types and TypeVars
+```python
+from typing import TypeVar, Generic, Protocol
+from collections.abc import Callable, Iterator
+
+T = TypeVar('T')
+K = TypeVar('K')
+V = TypeVar('V')
+
+class Container(Generic[T]):
+    def __init__(self) -> None:
+        self._items: list[T] = []
+    
+    def add(self, item: T) -> None:
+        self._items.append(item)
+    
+    def get_all(self) -> list[T]:
+        return self._items.copy()
+
+def transform_items(
+    items: list[T], 
+    transform_fn: Callable[[T], K]
+) -> list[K]:
+    return [transform_fn(item) for item in items]
+```
+
+#### Protocol for Structural Typing
+```python
+from typing import Protocol
+
+class Drawable(Protocol):
+    def draw(self) -> None: ...
+
+class Movable(Protocol):
+    def move(self, x: int, y: int) -> None: ...
+
+def render_shape(shape: Drawable) -> None:
+    shape.draw()
+
+# Any class with a draw() method can be used
+class Circle:
+    def draw(self) -> None:
+        print("Drawing circle")
+```
+
+#### Union Types and Optional
+```python
+from typing import Union, Optional, Literal
+
+# Use Union for multiple possible types
+def process_id(user_id: Union[int, str]) -> str:
+    return str(user_id)
+
+# Python 3.10+ union syntax
+def process_id_modern(user_id: int | str) -> str:
+    return str(user_id)
+
+# Use Optional for nullable values
+def find_user(user_id: int) -> Optional[dict[str, str]]:
+    # Returns user dict or None
+    pass
+
+# Use Literal for specific values
+def set_log_level(level: Literal["DEBUG", "INFO", "WARNING", "ERROR"]) -> None:
+    pass
+```
+
+#### TypedDict for Dictionary Schemas
+```python
+from typing import TypedDict, Required, NotRequired
+
+class UserData(TypedDict):
+    id: int
+    name: str
+    email: str
+    age: NotRequired[int]  # Optional field in Python 3.11+
+    is_active: NotRequired[bool]
+
+class StrictUserData(TypedDict, total=False):
+    id: Required[int]  # Required field even when total=False
+    name: Required[str]
+    age: int  # Optional
+    phone: str  # Optional
+
+def create_user(data: UserData) -> None:
+    # TypedDict ensures dictionary structure
+    pass
+```
+
+### Type Checking Tools
+
+#### MyPy Configuration
+Add comprehensive mypy configuration to `pyproject.toml`:
+
+```toml
+[tool.mypy]
+python_version = "3.12"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+disallow_untyped_decorators = true
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_no_return = true
+warn_unreachable = true
+strict_equality = true
+strict_optional = true
+show_error_codes = true
+
+# Per-module options
+[[tool.mypy.overrides]]
+module = "tests.*"
+disallow_untyped_defs = false
+```
+
+#### Runtime Type Checking
+```python
+from typing import get_type_hints, get_origin, get_args
+import inspect
+
+def validate_types(func):
+    """Decorator for runtime type validation."""
+    def wrapper(*args, **kwargs):
+        sig = inspect.signature(func)
+        type_hints = get_type_hints(func)
+        
+        # Validate arguments (simplified example)
+        for param_name, param_value in zip(sig.parameters.keys(), args):
+            expected_type = type_hints.get(param_name)
+            if expected_type and not isinstance(param_value, expected_type):
+                raise TypeError(f"Expected {expected_type}, got {type(param_value)}")
+        
+        return func(*args, **kwargs)
+    return wrapper
+
+@validate_types
+def calculate_average(numbers: list[float]) -> float:
+    return sum(numbers) / len(numbers)
+```
+
+### Error Handling with Types
+
+#### Custom Exception Types
+```python
+from typing import Optional
+
+class ValidationError(Exception):
+    def __init__(self, message: str, field: Optional[str] = None) -> None:
+        super().__init__(message)
+        self.field = field
+
+class ProcessingError(Exception):
+    def __init__(self, message: str, error_code: int) -> None:
+        super().__init__(message)
+        self.error_code = error_code
+```
+
+#### Result Type Pattern
+```python
+from typing import Union, Generic, TypeVar
+from dataclasses import dataclass
+
+T = TypeVar('T')
+E = TypeVar('E')
+
+@dataclass
+class Success(Generic[T]):
+    value: T
+
+@dataclass
+class Failure(Generic[E]):
+    error: E
+
+Result = Union[Success[T], Failure[E]]
+
+def safe_divide(a: float, b: float) -> Result[float, str]:
+    if b == 0:
+        return Failure("Division by zero")
+    return Success(a / b)
+
+def handle_result(result: Result[float, str]) -> None:
+    match result:
+        case Success(value):
+            print(f"Result: {value}")
+        case Failure(error):
+            print(f"Error: {error}")
+```
+
+### Type-Safe Configuration and Environment
+
+```python
+from typing import ClassVar
+from dataclasses import dataclass
+from pathlib import Path
+import os
+
+@dataclass(frozen=True)
+class Config:
+    """Type-safe configuration class."""
+    database_url: str
+    api_key: str
+    debug: bool = False
+    max_connections: int = 10
+    timeout: float = 30.0
+    
+    # Class variable for default config path
+    DEFAULT_CONFIG_PATH: ClassVar[Path] = Path("config.env")
+    
+    @classmethod
+    def from_env(cls) -> 'Config':
+        return cls(
+            database_url=os.environ['DATABASE_URL'],
+            api_key=os.environ['API_KEY'],
+            debug=os.environ.get('DEBUG', 'false').lower() == 'true',
+            max_connections=int(os.environ.get('MAX_CONNECTIONS', '10')),
+            timeout=float(os.environ.get('TIMEOUT', '30.0')),
+        )
+```
+
+### Type-Safe Data Processing
+
+```python
+from typing import NamedTuple, Iterator
+from dataclasses import dataclass
+from collections.abc import Sequence
+
+class Point(NamedTuple):
+    x: float
+    y: float
+    
+    def distance_to(self, other: 'Point') -> float:
+        return ((self.x - other.x) ** 2 + (self.y - other.y) ** 2) ** 0.5
+
+@dataclass(frozen=True)
+class Rectangle:
+    top_left: Point
+    bottom_right: Point
+    
+    @property
+    def area(self) -> float:
+        width = self.bottom_right.x - self.top_left.x
+        height = self.top_left.y - self.bottom_right.y
+        return width * height
+
+def process_shapes(shapes: Sequence[Rectangle]) -> Iterator[float]:
+    """Type-safe shape processing."""
+    for shape in shapes:
+        yield shape.area
+```
 
 ## Error Handling
 
