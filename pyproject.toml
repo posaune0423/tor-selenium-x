@@ -48,8 +48,8 @@ Homepage = "https://github.com/username/tor-selenium-x"
 Repository = "https://github.com/username/tor-selenium-x"
 "Bug Tracker" = "https://github.com/username/tor-selenium-x/issues"
 
-# [project.scripts]
-# tor-selenium = "hello:main"
+[project.scripts]
+tor-scraper = "src.main:main"
 
 [build-system]
 requires = ["hatchling"]
