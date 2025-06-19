@@ -2,8 +2,10 @@
 Tor Scraperのテスト
 """
 
-import pytest
 from unittest.mock import Mock, patch
+
+import pytest
+
 from src.tor_scraper import TorScraper
 
 
@@ -26,8 +28,8 @@ class TestTorScraper:
         assert options is not None
         # より詳細なテストは実際のSeleniumインスタンスで行う
 
-    @patch('src.tor_scraper.webdriver.Chrome')
-    @patch('src.tor_scraper.ChromeDriverManager')
+    @patch("src.tor_scraper.webdriver.Chrome")
+    @patch("src.tor_scraper.ChromeDriverManager")
     def test_start_driver_success(self, mock_driver_manager, mock_chrome):
         """WebDriver開始成功テスト"""
         # モックの設定
@@ -81,7 +83,7 @@ class TestTorScraperWithMock:
         result = mock_scraper.check_tor_connection()
 
         assert result is True
-        mock_scraper.driver.get.assert_called_with('https://check.torproject.org')
+        mock_scraper.driver.get.assert_called_with("https://check.torproject.org")
 
     def test_check_tor_connection_failure(self, mock_scraper):
         """Tor接続確認失敗テスト"""
@@ -106,13 +108,13 @@ class TestTorScraperWithMock:
         mock_scraper.driver.find_elements.return_value = mock_results
 
         # WebDriverWaitのモック
-        with patch('src.tor_scraper.WebDriverWait') as mock_wait:
+        with patch("src.tor_scraper.WebDriverWait") as mock_wait:
             mock_wait.return_value.until.return_value = mock_search_box
 
             mock_scraper.search_duckduckgo("test query")
 
             # 適切なメソッドが呼ばれたことを確認
-            mock_scraper.driver.get.assert_called_with('https://duckduckgo.com')
+            mock_scraper.driver.get.assert_called_with("https://duckduckgo.com")
             mock_search_box.send_keys.assert_called_with("test query")
             mock_search_button.click.assert_called_once()
 

@@ -5,71 +5,137 @@
 参考: https://zenn.dev/harurow/articles/7b845931350cb8
 """
 
-import time
-from typing import Optional
-
+import os
 from selenium import webdriver
-from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.chrome.options import Options as ChromeOptions
+from selenium.webdriver.firefox.options import Options as FirefoxOptions
+from selenium.webdriver.chrome.service import Service as ChromeService
+from selenium.webdriver.firefox.service import Service as FirefoxService
 from selenium.webdriver.common.by import By
-from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.support import expected_conditions as ec
 from selenium.webdriver.support.ui import WebDriverWait
 from webdriver_manager.chrome import ChromeDriverManager
+from webdriver_manager.firefox import GeckoDriverManager
 
 
 class TorScraper:
     """Tor経由でSeleniumスクレーピングを行うクラス"""
 
-    def __init__(self, proxy_port: int = 9050, headless: bool = True):
+    def __init__(self, proxy_port: int = 9050, headless: bool = True, browser: str = "chromium"):
         self.proxy_port = proxy_port
         self.headless = headless
-        self.driver: Optional[webdriver.Chrome] = None
+        self.browser = browser.lower()
+        self.driver = None
 
-    def _create_chrome_options(self) -> Options:
-        """Chrome オプションを設定"""
-        options = Options()
+    def _create_chromium_options(self) -> ChromeOptions:
+        """Chromium オプションを設定"""
+        options = ChromeOptions()
 
         # Tor プロキシ設定
-        options.add_argument(f'--proxy-server=socks5://localhost:{self.proxy_port}')
+        options.add_argument(f"--proxy-server=socks5://localhost:{self.proxy_port}")
 
         # ヘッドレスモード
         if self.headless:
-            options.add_argument('--headless')
+            options.add_argument("--headless")
 
         # セキュリティ・パフォーマンス設定
-        options.add_argument('--no-sandbox')
-        options.add_argument('--disable-dev-shm-usage')
-        options.add_argument('--disable-gpu')
-        options.add_argument('--disable-extensions')
-        options.add_argument('--disable-blink-features=AutomationControlled')
-        options.add_argument('--start-maximized')
+        options.add_argument("--no-sandbox")
+        options.add_argument("--disable-dev-shm-usage")
+        options.add_argument("--disable-gpu")
+        options.add_argument("--disable-extensions")
+        options.add_argument("--disable-blink-features=AutomationControlled")
+        options.add_argument("--start-maximized")
 
-        # User-Agent設定（簡略化）
-        options.add_argument('--user-agent=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36')
+        # User-Agent設定
+        options.add_argument(
+            "--user-agent=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        )
 
         # webdriver検出回避
         options.add_experimental_option("excludeSwitches", ["enable-automation"])
-        options.add_experimental_option('useAutomationExtension', False)
+        options.add_experimental_option("useAutomationExtension", False)
 
         # 通知を無効化
-        prefs = {'profile.default_content_setting_values.notifications': 2}
-        options.add_experimental_option('prefs', prefs)
+        prefs = {"profile.default_content_setting_values.notifications": 2}
+        options.add_experimental_option("prefs", prefs)
+
+        return options
+
+    def _create_firefox_options(self) -> FirefoxOptions:
+        """Firefox オプションを設定"""
+        options = FirefoxOptions()
+
+        # ヘッドレスモード
+        if self.headless:
+            options.add_argument("--headless")
+
+        # プロキシ設定
+        options.set_preference("network.proxy.type", 1)
+        options.set_preference("network.proxy.socks", "localhost")
+        options.set_preference("network.proxy.socks_port", self.proxy_port)
+        options.set_preference("network.proxy.socks_version", 5)
+
+        # DNS設定
+        options.set_preference("network.proxy.socks_remote_dns", True)
+
+        # User-Agent設定
+        options.set_preference(
+            "general.useragent.override",
+            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        )
+
+        # webdriver検出回避
+        options.set_preference("dom.webdriver.enabled", False)
+        options.set_preference("useAutomationExtension", False)
 
         return options
 
     def start_driver(self) -> None:
         """WebDriverを開始"""
         try:
-            options = self._create_chrome_options()
-            self.driver = webdriver.Chrome(
-                ChromeDriverManager().install(),
-                options=options
-            )
+            if self.browser == "firefox":
+                self._start_firefox_driver()
+            else:
+                self._start_chromium_driver()
+
             self.driver.implicitly_wait(10)
-            print("✅ WebDriver started successfully")
+            print(f"✅ WebDriver ({self.browser}) started successfully")
 
         except Exception as e:
             print(f"❌ Failed to start WebDriver: {e}")
             raise
+
+    def _start_chromium_driver(self) -> None:
+        """Chromiumドライバーを開始"""
+        options = self._create_chromium_options()
+
+        # システムのchromium-driverを使用するか、webdriver-managerを使用するかを判定
+        if os.path.exists("/usr/bin/chromedriver"):
+            service = ChromeService("/usr/bin/chromedriver")
+        else:
+            service = ChromeService(ChromeDriverManager().install())
+
+        # Chromiumバイナリのパスを指定
+        if os.path.exists("/usr/bin/chromium"):
+            options.binary_location = "/usr/bin/chromium"
+
+        self.driver = webdriver.Chrome(service=service, options=options)
+
+    def _start_firefox_driver(self) -> None:
+        """Firefoxドライバーを開始"""
+        options = self._create_firefox_options()
+
+        # システムのgeckodriverを使用するか、webdriver-managerを使用するかを判定
+        if os.path.exists("/usr/bin/geckodriver"):
+            service = FirefoxService("/usr/bin/geckodriver")
+        else:
+            service = FirefoxService(GeckoDriverManager().install())
+
+        # Firefoxバイナリのパスを指定
+        if os.path.exists("/usr/bin/firefox-esr"):
+            options.binary_location = "/usr/bin/firefox-esr"
+
+        self.driver = webdriver.Firefox(service=service, options=options)
 
     def check_tor_connection(self) -> bool:
         """Tor接続を確認"""
@@ -80,12 +146,10 @@ class TorScraper:
         try:
             # Torプロジェクトの接続確認ページにアクセス
             print("🔍 Checking Tor connection...")
-            self.driver.get('https://check.torproject.org')
+            self.driver.get("https://check.torproject.org")
 
             # ページが読み込まれるまで待機
-            WebDriverWait(self.driver, 10).until(
-                EC.presence_of_element_located((By.TAG_NAME, "body"))
-            )
+            WebDriverWait(self.driver, 10).until(ec.presence_of_element_located((By.TAG_NAME, "body")))
 
             # タイトルに"congratulations"が含まれているかチェック
             if "congratulations" in self.driver.title.lower():
@@ -96,7 +160,7 @@ class TorScraper:
                     ip_element = self.driver.find_element(By.TAG_NAME, "strong")
                     ip_address = ip_element.text
                     print(f"🌐 Current IP: {ip_address}")
-                except:
+                except Exception:
                     print("🌐 Tor connection active (IP address not found)")
 
                 return True
@@ -116,12 +180,10 @@ class TorScraper:
 
         try:
             print(f"🔍 Searching for: {query}")
-            self.driver.get('https://duckduckgo.com')
+            self.driver.get("https://duckduckgo.com")
 
             # 検索ボックスを見つけて入力
-            search_box = WebDriverWait(self.driver, 10).until(
-                EC.presence_of_element_located((By.NAME, "q"))
-            )
+            search_box = WebDriverWait(self.driver, 10).until(ec.presence_of_element_located((By.NAME, "q")))
             search_box.send_keys(query)
 
             # 検索ボタンをクリック
@@ -130,7 +192,7 @@ class TorScraper:
 
             # 結果が読み込まれるまで待機
             WebDriverWait(self.driver, 10).until(
-                EC.presence_of_element_located((By.CSS_SELECTOR, "[data-testid='result']"))
+                ec.presence_of_element_located((By.CSS_SELECTOR, "[data-testid='result']"))
             )
 
             print("✅ Search completed successfully")
@@ -148,44 +210,3 @@ class TorScraper:
         if self.driver:
             self.driver.quit()
             print("✅ WebDriver closed")
-
-
-def main():
-    """メイン実行関数"""
-    scraper = None
-    try:
-        print("🚀 Starting Tor Scraper...")
-
-        # スクレーパーを初期化
-        scraper = TorScraper(headless=True)
-
-        # WebDriverを開始
-        scraper.start_driver()
-
-        # Tor接続を確認
-        if not scraper.check_tor_connection():
-            print("❌ Tor connection failed. Exiting...")
-            return
-
-        # 少し待機
-        time.sleep(2)
-
-        # DuckDuckGoで検索
-        scraper.search_duckduckgo("Python web scraping")
-
-        # 結果を確認するため少し待機
-        time.sleep(3)
-
-        print("✅ Scraping completed successfully!")
-
-    except KeyboardInterrupt:
-        print("\n⚠️ Process interrupted by user")
-    except Exception as e:
-        print(f"❌ Unexpected error: {e}")
-    finally:
-        if scraper:
-            scraper.close()
-
-
-if __name__ == "__main__":
-    main()

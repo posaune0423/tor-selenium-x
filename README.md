@@ -67,12 +67,23 @@ make clean
 ```
 tor-selenium-x/
 ├── src/
-│   └── tor_scraper.py     # メインスクレーパー
-├── Dockerfile             # Docker設定
-├── docker-compose.yml     # Docker Compose設定
-├── docker-entrypoint.sh   # コンテナ起動スクリプト
-├── pyproject.toml         # Python依存関係
-├── Makefile              # 開発用コマンド
+│   ├── __init__.py
+│   ├── main.py            # メインエントリーポイント
+│   └── tor_scraper.py     # Torスクレーパークラス
+├── tests/
+│   ├── __init__.py
+│   └── test_tor_scraper.py
+├── docker/
+│   ├── Dockerfile         # Docker設定
+│   ├── docker-compose.yml # Docker Compose設定
+│   └── docker-entrypoint.sh # コンテナ起動スクリプト
+├── scripts/
+│   └── setup.sh          # セットアップスクリプト
+├── .vscode/
+│   └── settings.json     # VS Code設定
+├── pyproject.toml        # Python依存関係・ツール設定
+├── uv.lock              # 依存関係ロックファイル
+├── Makefile             # 開発用コマンド
 └── README.md
 ```
 
@@ -85,11 +96,47 @@ tor-selenium-x/
 - **Chrome + ChromeDriver**: ヘッドレスブラウザ
 - **Docker**: コンテナ化
 
+## 🧪 開発環境セットアップ
+
+### ローカル開発
+
+```bash
+# UV環境のセットアップ
+uv init --python 3.12
+uv sync --all-extras
+
+# 仮想環境の有効化
+source .venv/bin/activate
+
+# 開発用コマンド
+make install   # 依存関係インストール
+make dev      # 開発用依存関係も含めてインストール
+make format   # コードフォーマット (Black + isort)
+make lint     # リンター実行 (Ruff + MyPy)
+make test     # テスト実行 (pytest)
+make check    # lint + test
+```
+
+### VS Code設定
+
+プロジェクトには以下が設定済み：
+- **Black**: 120文字制限でのフォーマット
+- **Ruff**: 高速リンター
+- **isort**: インポート整理
+- **MyPy**: 型チェック
+- **pytest**: テスト実行
+
+必要な拡張機能：
+- Python (`ms-python.python`)
+- Black Formatter (`ms-python.black-formatter`)
+- Ruff (`charliermarsh.ruff`)
+- isort (`ms-python.isort`)
+
 ## 🔧 カスタマイズ
 
 ### 検索クエリの変更
 
-`src/tor_scraper.py`の`main()`関数内で検索クエリを変更できます：
+`src/main.py`でメインロジックを変更できます：
 
 ```python
 # DuckDuckGoで検索
@@ -98,7 +145,7 @@ scraper.search_duckduckgo("Your search query here")
 
 ### 他のサイトへのアクセス
 
-`TorScraper`クラスにメソッドを追加してカスタマイズ可能：
+`src/tor_scraper.py`の`TorScraper`クラスにメソッドを追加してカスタマイズ可能：
 
 ```python
 def visit_site(self, url: str) -> None:
@@ -107,40 +154,50 @@ def visit_site(self, url: str) -> None:
     # スクレーピングロジック
 ```
 
-## 🧪 開発環境
+## 🐳 Docker環境
 
-ローカル開発を行う場合：
+### 設定詳細
+
+- **ベースイメージ**: Python 3.12-slim
+- **Tor**: SocksPort 9050, ControlPort 9051
+- **Chrome**: Stable版 + webdriver-manager
+- **UV**: 依存関係管理
+
+### Docker コマンド
 
 ```bash
-# 依存関係をインストール
-make install
+# ビルド
+docker build -f docker/Dockerfile -t tor-selenium-x .
 
-# コードフォーマット
-make format
+# 実行
+docker run --rm tor-selenium-x
 
-# リンター実行
-make lint
-
-# テスト実行
-make test
+# 開発モード
+docker run --rm -v $(pwd)/src:/app/src tor-selenium-x
 ```
-
-## 🔒 セキュリティと注意事項
-
-- **合法的な使用のみ**: スクレーピング対象サイトの利用規約を必ず確認
-- **レート制限**: 過度なアクセスは避け、適切な間隔を設ける
-- **robots.txt**: サイトのrobot.txt を尊重する
-- **匿名性**: 完全な匿名性は保証されません
 
 ## 📊 動作確認
 
 実行すると以下の流れでスクレーピングが行われます：
 
 1. 🚀 Torサービス起動
-2. 🔍 Tor接続確認 (check.torproject.org)
+2. 🔍 Tor接続確認 (httpbin.org)
 3. 🌐 匿名IPアドレス表示
 4. 🦆 DuckDuckGoで検索実行
 5. 📝 検索結果の取得・表示
+
+## 🧪 テスト
+
+```bash
+# 全テスト実行
+uv run pytest
+
+# カバレッジ付きテスト
+uv run pytest --cov=src --cov-report=html
+
+# 特定のテスト
+uv run pytest tests/test_tor_scraper.py::test_specific_function
+```
 
 ## 🤝 トラブルシューティング
 
@@ -158,6 +215,22 @@ make stop && make run
 **ChromeDriverエラー**
 - webdriver-managerが自動で最新版をダウンロードします
 - コンテナを再ビルドしてください: `make clean && make build`
+
+**依存関係の問題**
+```bash
+# ロックファイルの更新
+uv lock --upgrade
+
+# 環境の再構築
+rm -rf .venv && uv sync --all-extras
+```
+
+## 🔒 セキュリティと注意事項
+
+- **合法的な使用のみ**: スクレーピング対象サイトの利用規約を必ず確認
+- **レート制限**: 過度なアクセスは避け、適切な間隔を設ける
+- **robots.txt**: サイトのrobot.txt を尊重する
+- **匿名性**: 完全な匿名性は保証されません
 
 ## 📄 ライセンス
 
