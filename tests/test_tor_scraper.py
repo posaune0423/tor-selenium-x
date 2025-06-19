@@ -19,10 +19,10 @@ class TestTorScraper:
         assert scraper.headless is True
         assert scraper.driver is None
 
-    def test_create_chrome_options(self):
+    def test_create_chromium_options(self):
         """Chrome オプション設定テスト"""
         scraper = TorScraper(proxy_port=9050, headless=True)
-        options = scraper._create_chrome_options()
+        options = scraper._create_chromium_options()
 
         # オプションが設定されていることを確認
         assert options is not None
@@ -45,7 +45,7 @@ class TestTorScraper:
         mock_chrome.assert_called_once()
 
     def test_close_with_driver(self):
-        """WebDriver終了テスト（ドライバーあり）"""
+        """WebDriver終了テスト(ドライバーあり)"""
         scraper = TorScraper()
         mock_driver = Mock()
         scraper.driver = mock_driver
@@ -55,7 +55,7 @@ class TestTorScraper:
         mock_driver.quit.assert_called_once()
 
     def test_close_without_driver(self):
-        """WebDriver終了テスト（ドライバーなし）"""
+        """WebDriver終了テスト(ドライバーなし)"""
         scraper = TorScraper()
         # ドライバーがNoneの状態でcloseを呼んでもエラーにならないことを確認
         scraper.close()  # エラーが発生しないことを確認
@@ -102,7 +102,7 @@ class TestTorScraperWithMock:
         mock_results = [Mock(), Mock(), Mock()]
 
         for i, result in enumerate(mock_results):
-            result.text = f"Search result {i+1}"
+            result.text = f"Search result {i + 1}"
 
         mock_scraper.driver.find_element.side_effect = [mock_search_button]
         mock_scraper.driver.find_elements.return_value = mock_results

@@ -6,7 +6,7 @@ Tor Scraperのメイン実行処理
 import os
 import time
 
-from .tor_scraper import TorScraper
+from src import TorScraper
 
 
 def main() -> None:
@@ -15,7 +15,7 @@ def main() -> None:
     try:
         print("🚀 Starting Tor Scraper...")
 
-        # 環境変数からブラウザタイプを取得（デフォルト: chromium）
+        # 環境変数からブラウザタイプを取得 (デフォルト: chromium)
         browser = os.getenv("BROWSER", "chromium").lower()
         print(f"🌐 Using browser: {browser}")
 

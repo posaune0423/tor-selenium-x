@@ -93,8 +93,10 @@ tor-selenium-x/
 - **UV**: 高速なPythonパッケージマネージャー
 - **Selenium 4.15+**: ウェブブラウザ自動化
 - **Tor**: 匿名ネットワーク
-- **Chrome + ChromeDriver**: ヘッドレスブラウザ
+- **Chromium/Firefox**: ヘッドレスブラウザ
 - **Docker**: コンテナ化
+- **Ruff**: 統合開発ツール（フォーマッター + リンター）
+- **Pylance**: 型チェック・IntelliSense
 
 ## 🧪 開発環境セットアップ
 
@@ -110,27 +112,24 @@ source .venv/bin/activate
 
 # 開発用コマンド
 make install   # 依存関係インストール
-make dev      # 開発用依存関係も含めてインストール
-make format   # コードフォーマット (Black + isort)
-make lint     # リンター実行 (Ruff + MyPy)
-make test     # テスト実行 (pytest)
-make check    # lint + test
+make format    # コードフォーマット (Ruff)
+make lint      # リンター実行 (Ruff)
+make fix       # 自動修正 (Ruff)
+make test      # テスト実行 (pytest)
+make check     # lint + test
 ```
 
 ### VS Code設定
 
 プロジェクトには以下が設定済み：
-- **Black**: 120文字制限でのフォーマット
-- **Ruff**: 高速リンター
-- **isort**: インポート整理
-- **MyPy**: 型チェック
+- **Ruff**: 統合フォーマッター・リンター・インポート整理
+- **Pylance**: 型チェック・IntelliSense
 - **pytest**: テスト実行
 
-必要な拡張機能：
+必要な拡張機能（推奨）：
 - Python (`ms-python.python`)
-- Black Formatter (`ms-python.black-formatter`)
+- Pylance (`ms-python.pylance`)
 - Ruff (`charliermarsh.ruff`)
-- isort (`ms-python.isort`)
 
 ## 🔧 カスタマイズ
 

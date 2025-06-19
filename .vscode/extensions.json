@@ -1,0 +1,9 @@
+{
+  "recommendations": [
+    "ms-python.python",
+    "ms-python.pylance",
+    "charliermarsh.ruff",
+    "ms-vscode.makefile-tools",
+    "ms-vscode-remote.remote-containers"
+  ]
+}

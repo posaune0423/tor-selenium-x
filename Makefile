@@ -1,4 +1,4 @@
-.PHONY: help build run dev test test-docker clean logs shell stop install format lint check
+.PHONY: help build run dev test test-docker clean logs shell stop install format lint fix check
 
 # デフォルトターゲット
 help:
@@ -17,8 +17,9 @@ help:
 	@echo "🧪 Development Commands:"
 	@echo "  install    - 依存関係をインストール"
 	@echo "  test       - ローカルでテストを実行"
-	@echo "  format     - コードをフォーマット"
-	@echo "  lint       - リンターを実行"
+	@echo "  format     - コードをフォーマット (Ruff)"
+	@echo "  lint       - リンターを実行 (Ruff)"
+	@echo "  fix        - 自動修正を実行 (Ruff)"
 	@echo "  check      - lint + test を実行"
 
 # ログディレクトリを作成
@@ -72,13 +73,15 @@ dev-install:
 
 # コードフォーマット
 format:
-	uv run black src tests
-	uv run isort src tests
+	uv run ruff format src tests
 
 # リンター実行
 lint:
 	uv run ruff check src tests
-	uv run mypy src
+
+# 自動修正
+fix:
+	uv run ruff check --fix src tests
 
 # すべてのチェックを実行
 check: lint test
@@ -93,7 +96,7 @@ clean-local:
 	rm -rf .pytest_cache
 	rm -rf htmlcov
 	rm -rf .coverage
-	rm -rf .mypy_cache
+	rm -rf .ruff_cache
 	rm -rf __pycache__
 	find . -type d -name "__pycache__" -exec rm -rf {} +
 	find . -type f -name "*.pyc" -delete
