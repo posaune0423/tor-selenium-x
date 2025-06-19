@@ -1,11 +1,16 @@
 {
   "cSpell.words": [
     "appuser",
+    "cpus",
     "dbus",
     "duckduckgo",
+    "healthcheck",
+    "htmlcov",
     "KHTML",
     "prefs",
     "pyproject",
+    "PYTHONPATH",
+    "PYTHONUNBUFFERED",
     "torrc"
   ],
 

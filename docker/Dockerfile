@@ -50,8 +50,6 @@ RUN echo "SocksPort 9050" > /etc/tor/torrc && \
 COPY docker/docker-entrypoint.sh /docker-entrypoint.sh
 RUN chmod +x /docker-entrypoint.sh
 
-# ログディレクトリを作成
-RUN mkdir -p /app/logs
 
 # 非rootユーザーを作成（セキュリティ向上）
 RUN useradd -m -u 1000 appuser && \
