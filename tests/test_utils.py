@@ -6,6 +6,7 @@ Unit tests for utility functions
 from unittest.mock import Mock, patch
 
 import pytest
+from selenium.webdriver.common.by import By
 
 from src.utils import (
     clean_text,
@@ -155,11 +156,9 @@ class TestSeleniumHelpers:
     """Test selenium helper functions"""
 
     @patch("src.utils.WebDriverWait")
-    @patch("src.utils.EC")
+    @patch("src.utils.ec")
     def test_wait_for_element_success(self, mock_ec, mock_wait):
         """Test successful element waiting"""
-        from selenium.webdriver.common.by import By
-
         from src.utils import wait_for_element
 
         # Mock successful wait
@@ -175,8 +174,6 @@ class TestSeleniumHelpers:
     @patch("src.utils.WebDriverWait")
     def test_wait_for_element_timeout(self, mock_wait):
         """Test element waiting timeout"""
-        from selenium.webdriver.common.by import By
-
         from src.utils import TimeoutException, wait_for_element
 
         # Mock timeout

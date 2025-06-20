@@ -10,13 +10,12 @@ from urllib.parse import urlparse
 
 from loguru import logger
 from selenium.common.exceptions import NoSuchElementException, TimeoutException
-from selenium.webdriver.common.by import By
 from selenium.webdriver.remote.webdriver import WebDriver
 from selenium.webdriver.support import expected_conditions as ec
 from selenium.webdriver.support.ui import WebDriverWait
 
 
-def wait_for_element(driver: WebDriver, by: By, value: str, timeout: int = 10, poll_frequency: float = 0.5) -> bool:
+def wait_for_element(driver: WebDriver, by: str, value: str, timeout: int = 10, poll_frequency: float = 0.5) -> bool:
     """
     Wait for an element to be present on the page.
 
@@ -38,7 +37,7 @@ def wait_for_element(driver: WebDriver, by: By, value: str, timeout: int = 10, p
         return False
 
 
-def wait_for_clickable(driver: WebDriver, by: By, value: str, timeout: int = 10, poll_frequency: float = 0.5) -> bool:
+def wait_for_clickable(driver: WebDriver, by: str, value: str, timeout: int = 10, poll_frequency: float = 0.5) -> bool:
     """
     Wait for an element to be clickable.
 
@@ -60,7 +59,7 @@ def wait_for_clickable(driver: WebDriver, by: By, value: str, timeout: int = 10,
         return False
 
 
-def safe_click(driver: WebDriver, by: By, value: str, timeout: int = 10) -> bool:
+def safe_click(driver: WebDriver, by: str, value: str, timeout: int = 10) -> bool:
     """
     Safely click an element with error handling.
 
@@ -85,7 +84,7 @@ def safe_click(driver: WebDriver, by: By, value: str, timeout: int = 10) -> bool
 
 
 def safe_send_keys(
-    driver: WebDriver, by: By, value: str, text: str, timeout: int = 10, clear_first: bool = True
+    driver: WebDriver, by: str, value: str, text: str, timeout: int = 10, clear_first: bool = True
 ) -> bool:
     """
     Safely send keys to an element with error handling.
@@ -114,7 +113,7 @@ def safe_send_keys(
         return False
 
 
-def get_text_safe(driver: WebDriver, by: By, value: str) -> str | None:
+def get_text_safe(driver: WebDriver, by: str, value: str) -> str | None:
     """
     Safely get text from an element.
 
@@ -136,7 +135,7 @@ def get_text_safe(driver: WebDriver, by: By, value: str) -> str | None:
         return None
 
 
-def get_attribute_safe(driver: WebDriver, by: By, value: str, attribute: str) -> str | None:
+def get_attribute_safe(driver: WebDriver, by: str, value: str, attribute: str) -> str | None:
     """
     Safely get attribute from an element.
 
@@ -159,7 +158,7 @@ def get_attribute_safe(driver: WebDriver, by: By, value: str, attribute: str) ->
         return None
 
 
-def scroll_to_element(driver: WebDriver, by: By, value: str) -> bool:
+def scroll_to_element(driver: WebDriver, by: str, value: str) -> bool:
     """
     Scroll to an element on the page.
 
@@ -241,11 +240,11 @@ def clean_text(text: str) -> str:
     if not text:
         return ""
 
+    # Remove non-printable characters first
+    text = re.sub(r"[\x00-\x1f\x7f-\x9f]", "", text)
+
     # Remove extra whitespace
     text = re.sub(r"\s+", " ", text)
-
-    # Remove non-printable characters
-    text = re.sub(r"[\x00-\x1f\x7f-\x9f]", "", text)
 
     return text.strip()
 
@@ -297,8 +296,8 @@ def format_timestamp(timestamp: int | float | str) -> str:
             dt = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
             return dt.strftime("%Y-%m-%d %H:%M:%S")
         else:
-            # Assume unix timestamp
-            dt = datetime.fromtimestamp(float(timestamp))
+            # Assume unix timestamp and treat as UTC
+            dt = datetime.utcfromtimestamp(float(timestamp))
             return dt.strftime("%Y-%m-%d %H:%M:%S")
     except Exception as e:
         logger.error(f"Error formatting timestamp {timestamp}: {e}")
