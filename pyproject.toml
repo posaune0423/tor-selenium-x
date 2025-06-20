@@ -17,7 +17,13 @@ classifiers = [
  "Topic :: Internet :: WWW/HTTP :: Browsers",
 ]
 
-dependencies = ["httpx>=0.25.0", "loguru>=0.7.0"]
+dependencies = [
+ "httpx>=0.25.0",
+ "loguru>=0.7.0",
+ "tbselenium>=0.7.0",
+ "selenium>=4.15.0",
+ "stem>=1.8.0"
+]
 
 [project.optional-dependencies]
 dev = [
@@ -25,6 +31,7 @@ dev = [
  "pytest-cov>=4.1.0",
  "pytest-asyncio>=0.21.0",
  "ruff>=0.6.0",
+ "pyvirtualdisplay>=3.0",
 ]
 selenium = ["selenium>=4.15.0", "webdriver-manager>=4.0.0"]
 all = ["tor-selenium-x[dev,selenium]"]

@@ -1,8 +1,10 @@
+#!/usr/bin/env python3
 """
-Tor Scraper package
+Tor Selenium X - X (Twitter) scraper using Tor Browser
 """
 
-from .tor_scraper import TorScraper
+from src import utils
+from src.x_scraper import Tweet, UserProfile, XScraper
 
 __version__ = "0.1.0"
-__all__ = ["TorScraper"]
+__all__ = ["Tweet", "UserProfile", "XScraper", "utils"]

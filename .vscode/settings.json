@@ -11,6 +11,8 @@
     "pyproject",
     "PYTHONPATH",
     "PYTHONUNBUFFERED",
+    "tbdriver",
+    "tbselenium",
     "torrc"
   ],
 
