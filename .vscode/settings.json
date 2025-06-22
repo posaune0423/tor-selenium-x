@@ -46,6 +46,18 @@
   "files.trimTrailingWhitespace": true,
   "files.insertFinalNewline": true,
   "files.trimFinalNewlines": true,
+  "files.exclude": {
+    "**/.ruff_cache": true,
+    "**/.pytest_cache": true,
+    "**/__pycache__": true,
+    "**/*.pyc": true,
+    "**/*.pyo": true,
+    "**/.coverage": true,
+    "**/htmlcov": true,
+    "**/.mypy_cache": true,
+    "**/*.egg-info": true,
+    "**/.DS_Store": true
+  },
 
   // Testing settings
   "python.testing.pytestEnabled": true,
