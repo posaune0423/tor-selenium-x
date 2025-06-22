@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-X scraper main execution
+X (Twitter) scraper using Tor Browser
 """
 
 import os
@@ -9,109 +9,143 @@ from pathlib import Path
 
 from loguru import logger
 
+from src.utils import configure_logging
 from src.x_scraper import XScraper
+
+
+def find_tor_browser_path() -> str | None:
+    """
+    Find Tor Browser installation path automatically.
+
+    Returns:
+        Path to Tor Browser directory or None if not found
+    """
+    # Check environment variable first
+    env_path = os.getenv("TOR_BROWSER_PATH")
+    if env_path and Path(env_path).exists():
+        logger.info(f"Using Tor Browser path from environment: {env_path}")
+        return env_path
+
+    # Common installation paths for different platforms
+    common_paths = [
+        # Linux
+        "/opt/torbrowser",
+        "/usr/local/tor-browser",
+        "/usr/share/tor-browser",
+        "~/tor-browser",
+        "~/tor-browser_en-US",
+        # macOS
+        "/Applications/Tor Browser.app",
+        "~/Applications/Tor Browser.app",
+        # Development/Docker
+        "/app/tor-browser",
+        "/usr/local/bin/tor-browser",
+    ]
+
+    # Expand user paths and check existence
+    for path_str in common_paths:
+        path = Path(path_str).expanduser()
+        if path.exists() and path.is_dir():
+            logger.info(f"Found Tor Browser at: {path}")
+            return str(path)
+
+    logger.warning("Tor Browser not found in common locations")
+    logger.info("Available locations checked:")
+    for path_str in common_paths:
+        path = Path(path_str).expanduser()
+        logger.info(f"  - {path} {'✓' if path.exists() else '✗'}")
+
+    return None
 
 
 def main() -> None:
     """Main execution function"""
     scraper = None
-
     try:
-        # Get Tor Browser path from environment variable
-        tbb_path = os.getenv("TBB_PATH")
+        # Configure logging with DEBUG level for detailed output
+        configure_logging(level="DEBUG")
+
+        logger.info("Starting X Scraper...")
+
+        # Find Tor Browser path
+        tbb_path = find_tor_browser_path()
         if not tbb_path:
-            logger.error("TBB_PATH environment variable not set")
-            logger.info("Please set TBB_PATH to your Tor Browser installation directory")
-            logger.info("Example: export TBB_PATH=/path/to/tor-browser")
+            logger.error("Tor Browser not found!")
+            logger.info("Please install Tor Browser or set TOR_BROWSER_PATH environment variable")
+            logger.info("Example: export TOR_BROWSER_PATH=/path/to/tor-browser")
             sys.exit(1)
 
-        # Verify TBB path exists
-        if not Path(tbb_path).exists():
-            logger.error(f"Tor Browser path does not exist: {tbb_path}")
-            sys.exit(1)
+        # Initialize scraper with Tor Browser
+        scraper = XScraper(
+            tbb_path=tbb_path,
+            headless=True,
+            use_stem=False,  # Use system Tor if available
+            socks_port=9050,
+            control_port=9051,
+        )
 
-        logger.info("🚀 Starting X Scraper with Tor Browser...")
-        logger.info(f"📁 TBB Path: {tbb_path}")
-
-        # Initialize scraper
-        scraper = XScraper(tbb_path=tbb_path, headless=True)
-
-        # Start the scraper
+        # Start scraper
         if not scraper.start():
-            logger.error("❌ Failed to start scraper")
+            logger.error("Failed to start scraper")
             return
+
+        logger.success("Scraper started successfully")
 
         # Navigate to X
         if not scraper.navigate_to_x():
-            logger.error("❌ Failed to navigate to X")
+            logger.error("Failed to navigate to X")
             return
 
-        # Example: Search for tweets
-        search_query = "Python programming"
-        logger.info(f"🔍 Searching for tweets about: {search_query}")
+        logger.success("Successfully connected to X")
 
-        tweets = scraper.search_tweets(search_query, max_tweets=10)
-
-        if tweets:
-            logger.success(f"✅ Found {len(tweets)} tweets!")
-
-            # Display tweets
-            for i, tweet in enumerate(tweets, 1):
-                logger.info(f"Tweet {i}:")
-                logger.info(f"  Author: @{tweet.author}")
-                logger.info(f"  Text: {tweet.text[:100]}...")
-                logger.info(f"  Likes: {tweet.likes}")
-                logger.info("  " + "-" * 50)
-
-            # Save tweets to JSON
-            filename = f"tweets_{search_query.replace(' ', '_')}.json"
-            scraper.save_tweets_to_json(tweets, filename)
-
-        else:
-            logger.warning("⚠️ No tweets found")
-
-        # Example: Get user profile
-        username = "elonmusk"  # Example username
-        logger.info(f"👤 Getting profile for: @{username}")
-
-        profile = scraper.get_user_profile(username)
-        if profile:
-            logger.success(f"✅ Profile found for @{username}")
-            logger.info(f"  Display Name: {profile.display_name}")
-            logger.info(f"  Bio: {profile.bio[:100]}...")
-            logger.info(f"  Followers: {profile.followers_count}")
-            logger.info(f"  Following: {profile.following_count}")
-
-            # Save profile to JSON
-            profile_filename = f"profile_{username}.json"
-            scraper.save_profile_to_json(profile, profile_filename)
-        else:
-            logger.warning(f"⚠️ Profile not found for @{username}")
-
-        logger.success("✅ Scraping completed successfully!")
+        # Run examples
+        run_examples(scraper)
 
     except KeyboardInterrupt:
-        logger.info("\n⚠️ Process interrupted by user")
+        logger.info("Interrupted by user")
     except Exception as e:
-        logger.error(f"❌ Unexpected error: {e}")
-        import traceback
-
-        logger.error(traceback.format_exc())
+        logger.error(f"Unexpected error in main: {e}")
     finally:
         if scraper:
             scraper.close()
 
 
-if __name__ == "__main__":
-    # Configure logging
-    logger.remove()
-    logger.add(
-        sys.stderr,
-        format=(
-            "<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <8}</level> | "
-            "<cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>"
-        ),
-        level="INFO",
-    )
+def run_examples(scraper: XScraper) -> None:
+    """Run example scraping operations"""
+    try:
+        # Example 1: Search for tweets
+        logger.info("=== Example 1: Search for tweets ===")
+        tweets = scraper.search_tweets("Python", max_tweets=5)
+        logger.info(f"Found {len(tweets)} tweets")
 
+        if tweets:
+            # Save tweets to JSON
+            scraper.save_tweets_to_json(tweets, "search_tweets.json")
+
+            # Show sample tweets
+            for i, tweet in enumerate(tweets[:3], 1):
+                logger.info(f"Tweet {i}: @{tweet.author}: {tweet.text[:100]}...")
+
+        # Example 2: Get user profile
+        logger.info("=== Example 2: Get user profile ===")
+        profile = scraper.get_user_profile("elonmusk")
+        if profile:
+            logger.success(f"Retrieved profile for @{profile.username}")
+            logger.info(f"Display name: {profile.display_name}")
+            logger.info(f"Bio: {profile.bio[:100] if profile.bio else 'No bio'}...")
+            logger.info(f"Location: {profile.location or 'No location'}")
+            logger.info(f"Website: {profile.website or 'No website'}")
+            logger.info(f"Followers: {profile.followers_count}")
+            logger.info(f"Following: {profile.following_count}")
+
+            # Save profile to JSON
+            scraper.save_profile_to_json(profile, f"profile_{profile.username}.json")
+        else:
+            logger.error("Failed to get user profile")
+
+    except Exception as e:
+        logger.error(f"Error in examples: {e}")
+
+
+if __name__ == "__main__":
     main()

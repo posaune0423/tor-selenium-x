@@ -77,6 +77,7 @@ class TestXScraper:
         # Mock driver
         mock_driver = Mock()
         mock_driver.title = "Congratulations. This browser is configured to use Tor."
+        mock_driver.page_source = "Congratulations! This browser is configured to use Tor."
         self.scraper.driver = mock_driver
 
         # Mock WebDriverWait
@@ -95,11 +96,18 @@ class TestXScraper:
         assert result == []
 
     @patch("src.x_scraper.WebDriverWait")
-    def test_search_tweets_success(self, mock_wait):
+    @patch("src.x_scraper.time.sleep")
+    @patch("src.x_scraper.random_delay")
+    def test_search_tweets_success(self, mock_random_delay, mock_sleep, mock_wait):
         """Test successful tweet search"""
         # Mock driver
         mock_driver = Mock()
         self.scraper.driver = mock_driver
+
+        # Mock driver properties and methods
+        mock_driver.current_url = "https://x.com/search?q=testquery&src=typed_query&f=live"
+        mock_driver.title = "Search Results"
+        mock_driver.page_source = "<html><body>Mock page</body></html>"
 
         # Mock tweet elements
         mock_element1 = Mock()
@@ -114,7 +122,11 @@ class TestXScraper:
         mock_tweet1 = Tweet(text="Test tweet 1", author="user1")
         mock_tweet2 = Tweet(text="Test tweet 2", author="user2")
 
-        with patch.object(self.scraper, "_extract_tweet_data", side_effect=[mock_tweet1, mock_tweet2]):
+        # Mock the _check_element_exists method to return True for main content
+        with patch.object(self.scraper, "_check_element_exists", return_value=True), \
+             patch.object(self.scraper, "_extract_tweet_data", side_effect=[mock_tweet1, mock_tweet2]), \
+             patch.object(self.scraper, "_collect_tweets_from_search", return_value=[mock_tweet1, mock_tweet2]):
+
             result = self.scraper.search_tweets("test query", max_tweets=2)
 
         assert len(result) == 2

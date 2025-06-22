@@ -1,214 +1,117 @@
 # Tor Selenium X
 
-X (Twitter) scraper using Tor Browser with [tbselenium](https://github.com/webfp/tor-browser-selenium).
+[![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
+[![Docker](https://img.shields.io/badge/docker-ready-green.svg)](https://www.docker.com/)
+
+X (Twitter) scraper using Tor Browser with tbselenium for privacy and reliability.
 
 ## Features
 
-- **Anonymous scraping** through Tor Browser
-- **Search tweets** by keywords
-- **Get user profiles** and tweet history  
-- **Export data** to JSON format
-- **Rate limiting** and anti-detection measures
-- **Comprehensive test suite**
+- **Privacy First**: Uses Tor Browser for anonymous scraping
+- **Stable Architecture**: Built with tbselenium library
+- **Docker Ready**: Development and production environments
+- **Type Safe**: Full type hints and comprehensive testing
 
-## Requirements
+## Quick Start
 
-- Python 3.12+
-- Tor Browser (downloaded and extracted)
-- `geckodriver` v0.31.0
+### Using Docker (Recommended)
 
-## Installation
-
-1. Install dependencies:
 ```bash
-uv sync
+# Clone repository
+git clone https://github.com/your-username/tor-selenium-x.git
+cd tor-selenium-x
+
+# Start development environment
+make dev
+
+# View logs
+make logs
 ```
 
-2. Download and extract [Tor Browser](https://www.torproject.org/download/)
+### Local Development
 
-3. Download [geckodriver v0.31.0](https://github.com/mozilla/geckodriver/releases/tag/v0.31.0) and add to PATH
-
-4. Set environment variable:
 ```bash
-export TBB_PATH=/path/to/tor-browser/
+# Install dependencies
+uv install
+
+# Run scraper
+uv run python src/main.py
 ```
 
 ## Usage
-
-### Basic Usage
 
 ```python
 from src.x_scraper import XScraper
 
 # Initialize scraper
-scraper = XScraper(tbb_path="/path/to/tor-browser/", headless=True)
+scraper = XScraper(
+    tbb_path="/opt/torbrowser",
+    headless=True,
+    socks_port=9050,
+    control_port=9051,
+)
 
-# Start scraper and connect to Tor
-if scraper.start():
-    # Navigate to X
+try:
+    # Start and connect
+    scraper.start()
     scraper.navigate_to_x()
     
-    # Search for tweets
+    # Search tweets
     tweets = scraper.search_tweets("Python programming", max_tweets=10)
     
     # Get user profile
-    profile = scraper.get_user_profile("elonmusk")
-    
-    # Get user tweets
-    user_tweets = scraper.get_user_tweets("elonmusk", max_tweets=20)
+    profile = scraper.get_user_profile("username")
     
     # Save data
-    scraper.save_tweets_to_json(tweets, "search_results.json")
-    scraper.save_profile_to_json(profile, "user_profile.json")
+    scraper.save_tweets_to_json(tweets, "tweets")
+    scraper.save_profile_to_json(profile, "profile")
     
-    # Close scraper
+finally:
     scraper.close()
 ```
 
-### Using Context Manager
+## Project Structure
 
-```python
-from src.x_scraper import XScraper
+```
+src/
+├── main.py          # Entry point
+├── x_scraper.py     # Main scraper class
+├── models.py        # Data models
+└── utils.py         # Utilities
 
-with XScraper(tbb_path="/path/to/tor-browser/") as scraper:
-    if scraper.start():
-        tweets = scraper.search_tweets("AI", max_tweets=5)
-        print(f"Found {len(tweets)} tweets")
+docker/
+├── development/     # Development environment
+└── production/      # Production environment
 ```
 
-### Command Line
+## Commands
 
 ```bash
-# Set Tor Browser path
-export TBB_PATH=/path/to/tor-browser/
+# Development
+make dev                # Start development environment
+make test              # Run tests
+make lint              # Code linting
+make format            # Code formatting
 
-# Run scraper
-uv run python -m src.main
+# Production
+make build-prod        # Build production image
+make run-prod          # Run production container
 ```
 
-## Data Structures
+## Requirements
 
-### Tweet
-```python
-@dataclass
-class Tweet:
-    id: Optional[str] = None
-    text: str = ""
-    author: str = ""
-    timestamp: Optional[str] = None
-    likes: int = 0
-    retweets: int = 0
-    replies: int = 0
-    url: Optional[str] = None
-```
-
-### UserProfile
-```python
-@dataclass  
-class UserProfile:
-    username: str = ""
-    display_name: str = ""
-    bio: str = ""
-    followers_count: Optional[int] = None
-    following_count: Optional[int] = None
-```
-
-## Utility Functions
-
-The `utils.py` module provides helper functions for:
-
-- **Selenium operations**: Safe element interaction, waiting, scrolling
-- **Text processing**: Cleaning, URL extraction, timestamp formatting
-- **X-specific validation**: Username validation, URL parsing
-- **File operations**: Safe filename creation
-- **Rate limiting**: Random delays, retry decorators
-
-## Testing
-
-Run tests with:
-```bash
-# All tests
-uv run pytest
-
-# Specific test file
-uv run pytest tests/test_utils.py
-
-# With coverage
-uv run pytest --cov=src --cov-report=html
-```
-
-## Configuration
-
-### Environment Variables
-
-- `TBB_PATH`: Path to Tor Browser directory (required)
-- `HEADLESS`: Run in headless mode (default: true)
-
-### Scraper Options
-
-```python
-scraper = XScraper(
-    tbb_path="/path/to/tor-browser/",
-    headless=True,           # Run headlessly
-    use_stem=True,           # Use Stem to manage Tor process
-    socks_port=9150,         # SOCKS proxy port
-    control_port=9151,       # Tor control port
-    data_dir="./data"        # Directory for output files
-)
-```
-
-## Anti-Detection Features
-
-- **Tor anonymization**: All requests go through Tor network
-- **Random delays**: Between actions to avoid detection
-- **Human-like scrolling**: Gradual page scrolling
-- **Realistic user agent**: Mimics real browser behavior
-- **Error handling**: Graceful handling of rate limits and blocks
-
-## Troubleshooting
-
-### Common Issues
-
-1. **"TBB_PATH not set"**: Set the environment variable to your Tor Browser path
-2. **"Tor connection failed"**: Ensure Tor Browser is properly installed and not blocked
-3. **"Element not found"**: X frequently changes their UI; selectors may need updates
-4. **Rate limiting**: Add longer delays or reduce request frequency
-
-### Debug Mode
-
-Enable debug logging:
-```python
-import sys
-from loguru import logger
-
-logger.remove()
-logger.add(sys.stderr, level="DEBUG")
-```
-
-## Legal Notice
-
-This tool is for educational and research purposes only. Users are responsible for:
-- Complying with X's Terms of Service
-- Following applicable laws and regulations  
-- Respecting rate limits and robots.txt
-- Not violating privacy or copyright
-
-## Dependencies
-
-- `tbselenium>=0.7.0`: Tor Browser automation
-- `selenium>=4.15.0`: Web browser automation
-- `stem>=1.8.0`: Tor network control
-- `loguru>=0.7.0`: Enhanced logging
-- `httpx>=0.25.0`: HTTP client
+- Python 3.12+
+- Docker & Docker Compose
+- 1GB RAM minimum (2GB recommended)
 
 ## Contributing
 
 1. Fork the repository
-2. Create a feature branch
-3. Make changes with tests
-4. Run linting: `uv run ruff check .`
-5. Submit pull request
+2. Create your feature branch
+3. Make your changes
+4. Run tests and linting
+5. Submit a pull request
 
 ## License
 
-MIT License - see LICENSE file for details.
+MIT License

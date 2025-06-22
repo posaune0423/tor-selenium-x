@@ -5,6 +5,7 @@ X (Twitter) scraper using Tor Browser with tbselenium
 
 import json
 import time
+from datetime import datetime
 from pathlib import Path
 
 import tbselenium.common as tb_common
@@ -18,7 +19,11 @@ from tbselenium.utils import launch_tbb_tor_with_stem
 
 from src.models import Tweet, UserProfile
 from src.utils import (
-    clean_text,
+    extract_attribute_from_driver_by_selectors,
+    extract_count_by_selectors,
+    extract_text_by_selectors,
+    extract_text_from_driver_by_selectors,
+    find_elements_by_selectors,
     get_user_agent,
     random_delay,
     validate_x_username,
@@ -79,21 +84,57 @@ class XScraper:
             True if successful, False otherwise
         """
         try:
-            # Start Tor process if using Stem
-            if self.use_stem:
-                logger.info("Starting Tor process with Stem...")
-                self.tor_process = launch_tbb_tor_with_stem(tbb_path=str(self.tbb_path))
-                time.sleep(3)  # Wait for Tor to start
+            if not self._start_tor_process():
+                return False
 
-            # Configure Tor Browser driver
+            if not self._initialize_driver():
+                return False
+
+            if not self._check_tor_connection():
+                logger.error("Failed to connect to Tor network")
+                return False
+
+            logger.success("Successfully connected to Tor network")
+            return True
+
+        except Exception as e:
+            logger.error(f"Error starting X scraper: {e}")
+            return False
+
+    def _start_tor_process(self) -> bool:
+        """Start Tor process if using Stem."""
+        if not self.use_stem:
+            return True
+
+        try:
+            logger.info("Starting Tor process with Stem...")
+            self.tor_process = launch_tbb_tor_with_stem(tbb_path=str(self.tbb_path))
+            time.sleep(3)  # Wait for Tor to start
+            return True
+        except Exception as e:
+            logger.error(f"Failed to start Tor process: {e}")
+            return False
+
+    def _initialize_driver(self) -> bool:
+        """Initialize Tor Browser driver."""
+        try:
             logger.info("Starting Tor Browser...")
             tor_cfg = tb_common.USE_STEM if self.use_stem else tb_common.USE_RUNNING_TOR
 
-            # Additional options for headless mode
-            pref_dict = {}
+            # Additional options for headless mode and proxy
+            pref_dict = {
+                "network.proxy.type": 1,  # Manual proxy configuration
+                "network.proxy.socks": "127.0.0.1",
+                "network.proxy.socks_port": self.socks_port,
+                "network.proxy.socks_version": 5,
+                "network.proxy.socks_remote_dns": True,
+            }
+
             if self.headless:
-                # Set headless preference
                 pref_dict["general.useragent.override"] = get_user_agent()
+
+            logger.info(f"Using SOCKS proxy on port {self.socks_port}")
+            logger.info(f"Using control port {self.control_port}")
 
             # Initialize driver
             self.driver = TorBrowserDriver(
@@ -105,16 +146,16 @@ class XScraper:
                 pref_dict=pref_dict,
             )
 
-            # Check Tor connection
-            if self._check_tor_connection():
-                logger.success("Successfully connected to Tor network")
-                return True
-            else:
-                logger.error("Failed to connect to Tor network")
+            # Verify driver was created
+            if not self.driver:
+                logger.error("Driver initialization returned None")
                 return False
 
+            logger.info("TorBrowserDriver initialized successfully")
+            return True
+
         except Exception as e:
-            logger.error(f"Error starting X scraper: {e}")
+            logger.error(f"Failed to initialize driver: {e}")
             return False
 
     def _check_tor_connection(self) -> bool:
@@ -135,17 +176,20 @@ class XScraper:
             WebDriverWait(self.driver, 30).until(ec.presence_of_element_located((By.TAG_NAME, "body")))
 
             # Check if we're using Tor
-            if "congratulations" in self.driver.title.lower():
-                # Try to extract IP address
-                try:
-                    ip_element = self.driver.find_element(By.TAG_NAME, "strong")
-                    ip_address = ip_element.text
-                    logger.info(f"Connected via Tor - IP: {ip_address}")
-                except NoSuchElementException:
-                    logger.info("Connected via Tor - IP extraction failed")
+            page_source = self.driver.page_source.lower()
+            page_title = self.driver.title.lower()
+
+            tor_indicators = [
+                "congratulations" in page_title,
+                "congratulations" in page_source,
+                "using tor" in page_source,
+            ]
+
+            if any(tor_indicators):
+                logger.info("Successfully connected via Tor")
                 return True
             else:
-                logger.warning("Not connected via Tor")
+                logger.warning("Tor connection verification failed")
                 return False
 
         except Exception as e:
@@ -191,34 +235,125 @@ class XScraper:
         Returns:
             List of Tweet objects
         """
+        # Guard clauses for early exit
+        if not query.strip():
+            logger.error("Empty search query provided")
+            return []
+
         if not self.driver:
             logger.error("Driver not initialized")
             return []
 
-        tweets = []
+        # Remove spaces from query for better results
+        clean_query = query.replace(" ", "")
+        logger.info(f"Cleaned search query: '{query}' -> '{clean_query}'")
+
+        if not self._navigate_to_search(clean_query):
+            return []
+
+        return self._collect_tweets_from_search(max_tweets)
+
+    def _navigate_to_search(self, query: str) -> bool:
+        """Navigate to search page and wait for results to load."""
+        if not self.driver:
+            return False
 
         try:
-            # Navigate to search
             search_url = f"https://x.com/search?q={query}&src=typed_query&f=live"
             logger.info(f"Searching for: {query}")
             self.driver.get(search_url)
 
-            # Wait for search results to load
-            WebDriverWait(self.driver, 30).until(
-                ec.presence_of_element_located((By.CSS_SELECTOR, "[data-testid='primaryColumn']"))
-            )
+            # Wait for search page to load - try multiple modern selectors
+            logger.debug(f"Waiting for search page to load: {search_url}")
 
+            # Modern X.com main content selectors (2024/2025)
+            main_content_selectors = [
+                "main[role='main']",  # Most common main element
+                "div[data-testid='primaryColumn']",  # Legacy selector
+                "section[role='region']",  # Content sections
+                "div[dir='ltr']",  # Language direction container
+                "div[aria-label*='Timeline']",  # Timeline container
+                "div[aria-label*='Search']",  # Search results container
+                "[role='main']",  # Generic main role
+                "main",  # Basic main tag
+            ]
+
+            found_main_content = False
+            for i, selector in enumerate(main_content_selectors):
+                if self._check_element_exists(selector, timeout=10):
+                    logger.debug(f"Found main content with selector[{i}]: {selector}")
+                    found_main_content = True
+                    break
+
+            if not found_main_content:
+                logger.warning("No main content elements found, trying extended wait...")
+                # Extended wait for slow loading
+                time.sleep(5)
+
+                # Try again with more generic selectors
+                generic_selectors = ["body", "div", "section", "article"]
+                for selector in generic_selectors:
+                    if self._check_element_exists(selector, timeout=5):
+                        logger.debug(f"Found basic element: {selector}")
+                        found_main_content = True
+                        break
+
+            if not found_main_content:
+                logger.error("No main content elements found on search page")
+                self._debug_page_state(f"Search page load failed for query: {query}")
+                return False
+
+            # Additional wait for dynamic content to load
             random_delay(3, 5)
 
-            # Scroll and collect tweets
-            collected = 0
-            scroll_attempts = 0
-            max_scroll_attempts = 10
+            # Check if we actually got to a search page
+            if "search" not in self.driver.current_url.lower():
+                logger.warning(f"URL doesn't contain 'search': {self.driver.current_url}")
+                self._debug_page_state("Search URL verification failed")
+                return False
 
+            logger.success(f"Successfully navigated to search page for: {query}")
+            return True
+
+        except Exception as e:
+            logger.error(f"Error navigating to search: {e}")
+            self._debug_page_state(f"Search navigation error for query: {query}")
+            return False
+
+    def _collect_tweets_from_search(self, max_tweets: int) -> list[Tweet]:
+        """Collect tweets from search results."""
+        if not self.driver:
+            return []
+
+        tweets = []
+        collected = 0
+        scroll_attempts = 0
+        max_scroll_attempts = 10
+
+        try:
             while collected < max_tweets and scroll_attempts < max_scroll_attempts:
-                # Find tweet elements
-                tweet_elements = self.driver.find_elements(By.CSS_SELECTOR, "[data-testid='tweet']")
+                # Modern X.com tweet selectors (2024/2025)
+                tweet_selectors = [
+                    "article[data-testid='tweet']",  # Primary tweet articles
+                    "div[data-testid='tweet']",  # Alternative tweet containers
+                    "article[role='article']",  # Generic article role
+                    "div[data-testid='cellInnerDiv'] article",  # Nested tweet articles
+                    "article",  # Basic article tags
+                    "[data-testid='tweet']",  # Any element with tweet testid
+                ]
 
+                tweet_elements = find_elements_by_selectors(self.driver, tweet_selectors)
+
+                if not tweet_elements:
+                    logger.debug(f"No tweet elements found with any selector on attempt {scroll_attempts + 1}")
+                    # Try to scroll and continue
+                    self._scroll_for_more_content()
+                    scroll_attempts += 1
+                    continue
+
+                logger.debug(f"Found {len(tweet_elements)} tweet elements")
+
+                # Process new tweets
                 for element in tweet_elements[collected:]:
                     if collected >= max_tweets:
                         break
@@ -227,19 +362,29 @@ class XScraper:
                     if tweet and tweet.text:  # Only add tweets with content
                         tweets.append(tweet)
                         collected += 1
+                        logger.debug(f"Collected tweet {collected}/{max_tweets}: {tweet.text[:50]}...")
 
+                # Scroll for more tweets if needed
                 if collected < max_tweets:
-                    # Scroll down to load more tweets
-                    self.driver.execute_script("window.scrollBy(0, 1000);")
-                    random_delay(2, 4)
+                    self._scroll_for_more_content()
                     scroll_attempts += 1
+                    # Add extra delay between scrolls
+                    random_delay(2, 4)
 
-            logger.success(f"Collected {len(tweets)} tweets for query: {query}")
+            logger.success(f"Collected {len(tweets)} tweets")
             return tweets
 
         except Exception as e:
-            logger.error(f"Error searching tweets: {e}")
+            logger.error(f"Error collecting tweets: {e}")
+            self._debug_page_state("Tweet collection error")
             return tweets
+
+    def _scroll_for_more_content(self) -> None:
+        """Scroll down to load more content."""
+        if not self.driver:
+            return
+        self.driver.execute_script("window.scrollBy(0, 1000);")
+        random_delay(2, 4)
 
     def get_user_profile(self, username: str) -> UserProfile | None:
         """
@@ -284,6 +429,7 @@ class XScraper:
 
         except Exception as e:
             logger.error(f"Error getting user profile: {e}")
+            self._debug_page_state(f"Profile extraction error for {username}")
             return None
 
     def get_user_tweets(self, username: str, max_tweets: int = 20) -> list[Tweet]:
@@ -297,6 +443,7 @@ class XScraper:
         Returns:
             List of Tweet objects
         """
+        # Guard clauses for early exit
         if not validate_x_username(username):
             logger.error(f"Invalid username: {username}")
             return []
@@ -305,10 +452,17 @@ class XScraper:
             logger.error("Driver not initialized")
             return []
 
-        tweets = []
+        if not self._navigate_to_user_profile(username):
+            return []
+
+        return self._collect_user_tweets(username, max_tweets)
+
+    def _navigate_to_user_profile(self, username: str) -> bool:
+        """Navigate to user's profile page."""
+        if not self.driver:
+            return False
 
         try:
-            # Navigate to user's tweets
             profile_url = f"https://x.com/{username}"
             logger.info(f"Getting tweets from: @{username}")
             self.driver.get(profile_url)
@@ -319,14 +473,24 @@ class XScraper:
             )
 
             random_delay(3, 5)
+            return True
 
-            # Scroll and collect tweets
-            collected = 0
-            scroll_attempts = 0
-            max_scroll_attempts = 10
+        except Exception as e:
+            logger.error(f"Error navigating to user profile: {e}")
+            return False
 
+    def _collect_user_tweets(self, username: str, max_tweets: int) -> list[Tweet]:
+        """Collect tweets from user's profile page."""
+        if not self.driver:
+            return []
+
+        tweets = []
+        collected = 0
+        scroll_attempts = 0
+        max_scroll_attempts = 10
+
+        try:
             while collected < max_tweets and scroll_attempts < max_scroll_attempts:
-                # Find tweet elements
                 tweet_elements = self.driver.find_elements(By.CSS_SELECTOR, "[data-testid='tweet']")
 
                 for element in tweet_elements[collected:]:
@@ -339,16 +503,14 @@ class XScraper:
                         collected += 1
 
                 if collected < max_tweets:
-                    # Scroll down to load more tweets
-                    self.driver.execute_script("window.scrollBy(0, 1000);")
-                    random_delay(2, 4)
+                    self._scroll_for_more_content()
                     scroll_attempts += 1
 
             logger.success(f"Collected {len(tweets)} tweets from @{username}")
             return tweets
 
         except Exception as e:
-            logger.error(f"Error getting user tweets: {e}")
+            logger.error(f"Error collecting user tweets: {e}")
             return tweets
 
     def _extract_tweet_data(self, element) -> Tweet | None:
@@ -361,133 +523,343 @@ class XScraper:
         Returns:
             Tweet object or None
         """
+        if not element:
+            return None
+
+        tweet = Tweet()
+
+        # Extract each piece of data using helper methods
+        tweet.text = self._extract_tweet_text(element)
+        tweet.author = self._extract_tweet_author(element)
+        tweet.likes = self._extract_tweet_likes(element)
+        tweet.retweets = self._extract_tweet_retweets(element)
+        tweet.replies = self._extract_tweet_replies(element)
+
+        # Extract timestamp and URL data
+        self._extract_tweet_time_data(element, tweet)
+
+        # Return tweet only if it has essential data
+        if not tweet.text and not tweet.author:
+            return None
+
+        return tweet
+
+    def _extract_tweet_text(self, element) -> str:
+        """Extract tweet text content using TypeScript-style selectors."""
         try:
-            tweet = Tweet()
+            # Define selectors in priority order
+            selectors = [
+                "[data-testid='tweetText'] span",  # Primary selector
+                "[data-testid='tweetText']",  # Fallback 1
+                "[lang] span",  # Language-specific spans
+                "div[dir='auto'] span",  # Direction-specific spans
+                "[role='presentation'] span",  # Presentation role spans
+            ]
 
-            # Extract text content
-            try:
-                text_element = element.find_element(By.CSS_SELECTOR, "[data-testid='tweetText']")
-                tweet.text = clean_text(text_element.text)
-            except NoSuchElementException:
-                # Some tweets might not have text (e.g., pure media tweets)
-                pass
-
-            # Extract author
-            try:
-                author_element = element.find_element(By.CSS_SELECTOR, "[data-testid='User-Name'] a")
-                author_href = author_element.get_attribute("href")
-                if author_href:
-                    tweet.author = author_href.split("/")[-1]
-            except NoSuchElementException:
-                pass
-
-            # Extract engagement metrics
-            try:
-                # Likes
-                like_element = element.find_element(By.CSS_SELECTOR, "[data-testid='like'] span")
-                tweet.likes = self._parse_count(like_element.text)
-            except NoSuchElementException:
-                pass
-
-            try:
-                # Retweets
-                retweet_element = element.find_element(By.CSS_SELECTOR, "[data-testid='retweet'] span")
-                tweet.retweets = self._parse_count(retweet_element.text)
-            except NoSuchElementException:
-                pass
-
-            try:
-                # Replies
-                reply_element = element.find_element(By.CSS_SELECTOR, "[data-testid='reply'] span")
-                tweet.replies = self._parse_count(reply_element.text)
-            except NoSuchElementException:
-                pass
-
-            # Extract timestamp and URL
-            try:
-                time_element = element.find_element(By.CSS_SELECTOR, "time")
-                tweet.timestamp = time_element.get_attribute("datetime")
-
-                # Try to get tweet URL from time element's parent link
-                time_link = time_element.find_element(By.XPATH, "..")
-                tweet_url = time_link.get_attribute("href")
-                if tweet_url:
-                    tweet.url = tweet_url
-                    # Extract tweet ID from URL
-                    url_parts = tweet_url.split("/")
-                    if "status" in url_parts:
-                        status_index = url_parts.index("status")
-                        if status_index + 1 < len(url_parts):
-                            tweet.id = url_parts[status_index + 1]
-
-            except NoSuchElementException:
-                pass
-
-            return tweet if tweet.text or tweet.author else None
+            return extract_text_by_selectors(element, selectors)
 
         except Exception as e:
-            logger.error(f"Error extracting tweet data: {e}")
-            return None
+            logger.debug(f"Error extracting tweet text: {e}")
+            return ""
+
+    def _extract_tweet_author(self, element) -> str:
+        """Extract tweet author username."""
+        try:
+            author_element = element.find_element(By.CSS_SELECTOR, "[data-testid='User-Name'] a")
+            author_href = author_element.get_attribute("href")
+            if not author_href:
+                return ""
+            return author_href.split("/")[-1]
+        except NoSuchElementException:
+            return ""
+
+    def _extract_tweet_likes(self, element) -> int:
+        """Extract tweet likes count."""
+        selectors = [
+            "[data-testid='like'] span",
+            "[data-testid='like']",
+            "[aria-label*='like'] span",
+            "button[data-testid='like'] span",
+            "[role='button'][aria-label*='like'] span",
+        ]
+
+        return extract_count_by_selectors(element, selectors, self._parse_count)
+
+    def _extract_tweet_retweets(self, element) -> int:
+        """Extract tweet retweets count."""
+        selectors = [
+            "[data-testid='retweet'] span",
+            "[data-testid='unretweet'] span",
+            "[aria-label*='retweet'] span",
+            "button[data-testid='retweet'] span",
+            "[role='button'][aria-label*='retweet'] span",
+        ]
+
+        return extract_count_by_selectors(element, selectors, self._parse_count)
+
+    def _extract_tweet_replies(self, element) -> int:
+        """Extract tweet replies count."""
+        selectors = [
+            "[data-testid='reply'] span",
+            "[aria-label*='repl'] span",
+            "button[data-testid='reply'] span",
+            "[role='button'][aria-label*='repl'] span",
+        ]
+
+        return extract_count_by_selectors(element, selectors, self._parse_count)
+
+    def _extract_tweet_time_data(self, element, tweet: Tweet) -> None:
+        """Extract timestamp and URL data for tweet."""
+        try:
+            time_element = element.find_element(By.CSS_SELECTOR, "time")
+            tweet.timestamp = time_element.get_attribute("datetime") or ""
+
+            # Extract tweet URL and ID
+            time_link = time_element.find_element(By.XPATH, "..")
+            tweet_url = time_link.get_attribute("href")
+            if not tweet_url:
+                return
+
+            tweet.url = tweet_url
+            self._extract_tweet_id_from_url(tweet_url, tweet)
+
+        except NoSuchElementException:
+            pass
+
+    def _extract_tweet_id_from_url(self, tweet_url: str, tweet: Tweet) -> None:
+        """Extract tweet ID from URL."""
+        url_parts = tweet_url.split("/")
+        if "status" not in url_parts:
+            return
+
+        status_index = url_parts.index("status")
+        if status_index + 1 >= len(url_parts):
+            return
+
+        tweet.id = url_parts[status_index + 1]
 
     def _extract_profile_data(self, username: str) -> UserProfile:
         """
-        Extract user profile data from profile page.
+        Extract profile data from the current page.
 
         Args:
-            username: Username to extract data for
+            username: Username for the profile
 
         Returns:
             UserProfile object
         """
         profile = UserProfile(username=username)
 
+        # Add delay to ensure page is fully loaded
+        random_delay(2, 4)
+
+        # Wait for profile header to be loaded
         try:
-            # Extract display name
-            try:
-                name_element = self.driver.find_element(By.CSS_SELECTOR, "[data-testid='UserName'] span")  # type: ignore
-                profile.display_name = clean_text(name_element.text)
-            except NoSuchElementException:
-                pass
-
-            # Extract bio
-            try:
-                bio_element = self.driver.find_element(By.CSS_SELECTOR, "[data-testid='UserDescription']")  # type: ignore
-                profile.bio = clean_text(bio_element.text)
-            except NoSuchElementException:
-                pass
-
-            # Extract follower/following counts
-            try:
-                stats_elements = self.driver.find_elements(  # type: ignore
-                    By.CSS_SELECTOR, "[href$='/following'] span, [href$='/verified_followers'] span"
+            logger.debug("Waiting for profile header to load...")
+            if self.driver:
+                WebDriverWait(self.driver, 10).until(
+                    ec.any_of(
+                        ec.presence_of_element_located((By.CSS_SELECTOR, "h1[role='heading']")),
+                        ec.presence_of_element_located((By.CSS_SELECTOR, "[data-testid='UserName']")),
+                        ec.presence_of_element_located((By.CSS_SELECTOR, "[data-testid='UserProfileHeader_Items']")),
+                    )
                 )
-                for element in stats_elements:
-                    text = element.text.lower()
-                    if "following" in text:
-                        profile.following_count = self._parse_count(text.replace("following", "").strip())
-                    elif "followers" in text:
-                        profile.followers_count = self._parse_count(text.replace("followers", "").strip())
-            except NoSuchElementException:
-                pass
-
-            # Extract location
-            try:
-                location_element = self.driver.find_element(By.CSS_SELECTOR, "[data-testid='UserLocation']")  # type: ignore
-                profile.location = clean_text(location_element.text)
-            except NoSuchElementException:
-                pass
-
-            # Extract website
-            try:
-                website_element = self.driver.find_element(By.CSS_SELECTOR, "[data-testid='UserUrl'] a")  # type: ignore
-                profile.website = website_element.get_attribute("href")
-            except NoSuchElementException:
-                pass
-
+                logger.debug("Profile header loaded successfully")
         except Exception as e:
-            logger.error(f"Error extracting profile data: {e}")
+            logger.warning(f"Profile header did not load as expected: {e}")
+
+        # Extract each piece of profile data using helper methods
+        profile.display_name = self._extract_profile_display_name()
+        profile.bio = self._extract_profile_bio()
+        profile.location = self._extract_profile_location()
+        profile.website = self._extract_profile_website()
+
+        # Extract follower/following counts
+        self._extract_profile_stats(profile)
 
         return profile
+
+    def _extract_profile_display_name(self) -> str:
+        """Extract profile display name."""
+        selectors = [
+            "h1[role='heading'] span span",  # Primary selector for display name
+            "[data-testid='UserName'] span",
+            "[data-testid='UserProfileHeader_Items'] h1 span",
+            "h1 span span",  # More generic selector
+            "h1 div span",  # Alternative structure
+        ]
+
+        return extract_text_from_driver_by_selectors(self.driver, selectors)
+
+    def _extract_profile_bio(self) -> str:
+        """Extract profile bio/description."""
+        # 最初にbio要素の存在を確認
+        bio_container_selectors = [
+            "[data-testid='UserDescription']",
+            "div[data-testid='UserDescription']",
+        ]
+
+        # プロフィールヘッダー内でのみ検索するためのコンテナセレクタ
+        profile_header_selectors = [
+            "[data-testid='UserProfileHeader_Items']",
+            "[data-testid='primaryColumn'] div:has([data-testid='UserName'])",
+            "[data-testid='primaryColumn']",
+        ]
+
+        if not self.driver:
+            return ""
+
+        # まず、プロフィールヘッダー内でbio要素を探す
+        for header_selector in profile_header_selectors:
+            try:
+                header_elements = self.driver.find_elements(By.CSS_SELECTOR, header_selector)
+                if not header_elements:
+                    continue
+
+                for header_elem in header_elements:
+                    # bio要素が存在するかチェック
+                    for bio_selector in bio_container_selectors:
+                        try:
+                            bio_elements = header_elem.find_elements(By.CSS_SELECTOR, bio_selector)
+                            if bio_elements:
+                                # bio要素が見つかった場合、そのテキストを抽出
+                                bio_text_selectors = ["span", "div span", "div"]
+                                bio_text = extract_text_by_selectors(bio_elements[0], bio_text_selectors)
+                                if bio_text:
+                                    logger.debug(f"Found bio with selector: {header_selector} -> {bio_selector}")
+                                    return bio_text
+                        except Exception as e:
+                            logger.debug(f"Error checking bio selector '{bio_selector}': {e}")
+                            continue
+            except Exception as e:
+                logger.debug(f"Error with header selector '{header_selector}': {e}")
+                continue
+
+        # bio要素が見つからない場合は空文字列を返す(bioが設定されていない)
+        logger.debug("No bio element found - user likely has no bio set")
+        return ""
+
+    def _extract_profile_location(self) -> str:
+        """Extract profile location."""
+        selectors = [
+            "[data-testid='UserLocation'] span",
+            "[data-testid='UserLocation']",
+            "[data-testid='UserProfileHeader_Items'] span[data-testid='UserLocation']",
+        ]
+
+        return extract_text_from_driver_by_selectors(self.driver, selectors)
+
+    def _extract_profile_website(self) -> str:
+        """Extract profile website URL."""
+        selectors = [
+            "[data-testid='UserUrl'] a",
+            "a[href*='http'][target='_blank']",
+            "[data-testid='UserProfileHeader_Items'] a[href*='http']",
+        ]
+
+        return extract_attribute_from_driver_by_selectors(self.driver, selectors, "href")
+
+    def _extract_profile_stats(self, profile: UserProfile) -> None:
+        """Extract follower/following counts using modern X.com selectors."""
+        if not self.driver:
+            logger.warning("Driver not initialized, cannot extract profile stats")
+            profile.following_count = 0
+            profile.followers_count = 0
+            return
+
+        try:
+            # Modern approach: Look for links ending with /following and /followers
+            following_count = None
+            followers_count = None
+
+            # Try to find following count
+            following_selectors = [
+                "a[href$='/following'] span span",
+                "a[href*='/following'] span",
+                "[data-testid='UserFollowing-'] span",
+            ]
+
+            for selector in following_selectors:
+                try:
+                    elements = self.driver.find_elements(By.CSS_SELECTOR, selector)
+                    for element in elements:
+                        text = element.text.strip()
+                        if text and any(char.isdigit() for char in text):
+                            following_count = self._parse_count(text)
+                            if following_count is not None:
+                                logger.debug(f"Found following count: {text} -> {following_count}")
+                                break
+                    if following_count is not None:
+                        break
+                except NoSuchElementException:
+                    continue
+
+            # Try to find followers count
+            followers_selectors = [
+                "a[href$='/followers'] span span",
+                "a[href$='/verified_followers'] span span",
+                "a[href*='/followers'] span",
+                "[data-testid='UserFollowers-'] span",
+            ]
+
+            for selector in followers_selectors:
+                try:
+                    elements = self.driver.find_elements(By.CSS_SELECTOR, selector)
+                    for element in elements:
+                        text = element.text.strip()
+                        if text and any(char.isdigit() for char in text):
+                            followers_count = self._parse_count(text)
+                            if followers_count is not None:
+                                logger.debug(f"Found followers count: {text} -> {followers_count}")
+                                break
+                    if followers_count is not None:
+                        break
+                except NoSuchElementException:
+                    continue
+
+            # Fallback: Try to extract from link text directly (like TypeScript implementation)
+            if following_count is None or followers_count is None:
+                try:
+                    # Look for following link
+                    if following_count is None:
+                        following_link = self.driver.find_element(By.CSS_SELECTOR, "a[href$='/following']")
+                        following_text = following_link.text
+                        import re
+
+                        numbers = re.findall(r"[\d,]+", following_text)
+                        if numbers:
+                            following_count = self._parse_count(numbers[0])
+                            logger.debug(f"Found following from link text: {following_text} -> {following_count}")
+                except NoSuchElementException:
+                    pass
+
+                try:
+                    # Look for followers link
+                    if followers_count is None:
+                        followers_link = self.driver.find_element(
+                            By.CSS_SELECTOR, "a[href$='/followers'], a[href$='/verified_followers']"
+                        )
+                        followers_text = followers_link.text
+                        import re
+
+                        numbers = re.findall(r"[\d,]+", followers_text)
+                        if numbers:
+                            followers_count = self._parse_count(numbers[0])
+                            logger.debug(f"Found followers from link text: {followers_text} -> {followers_count}")
+                except NoSuchElementException:
+                    pass
+
+            profile.following_count = following_count or 0
+            profile.followers_count = followers_count or 0
+
+            logger.info(
+                f"Profile stats extracted - Following: {profile.following_count}, Followers: {profile.followers_count}"
+            )
+
+        except Exception as e:
+            logger.warning(f"Error extracting profile stats: {e}")
+            profile.following_count = 0
+            profile.followers_count = 0
 
     def _parse_count(self, count_str: str | None) -> int:
         """
@@ -497,25 +869,229 @@ class XScraper:
             count_str: Count string to parse (can be None)
 
         Returns:
-            Parsed count as integer
+            Parsed count as integer, 0 if parsing fails
         """
         if not count_str:
             return 0
 
-        count_str = count_str.strip().upper()
+        # Clean and normalize the string
+        count_str = count_str.strip().replace(",", "")
+        if not count_str:
+            return 0
 
         try:
-            if "K" in count_str:
-                return int(float(count_str.replace("K", "")) * 1000)
-            elif "M" in count_str:
-                return int(float(count_str.replace("M", "")) * 1000000)
-            elif "B" in count_str:
-                return int(float(count_str.replace("B", "")) * 1000000000)
+            # Convert to uppercase for case-insensitive matching
+            upper_str = count_str.upper()
+
+            # Extract numeric part
+            num_str = ""
+            for char in upper_str:
+                if char.isdigit() or char == ".":
+                    num_str += char
+                elif char in ["K", "M", "B"]:
+                    break
+
+            if not num_str:
+                return 0
+
+            num = float(num_str)
+
+            # Apply multipliers based on suffix
+            if "K" in upper_str:
+                return int(num * 1000)
+            elif "M" in upper_str:
+                return int(num * 1000000)
+            elif "B" in upper_str:
+                return int(num * 1000000000)
             else:
-                # Try to parse as regular number
-                return int(count_str.replace(",", ""))
-        except (ValueError, TypeError):
+                return int(num)
+
+        except (ValueError, TypeError) as e:
+            logger.debug(f"Failed to parse count '{count_str}': {e}")
             return 0
+
+    def _debug_page_state(self, context: str) -> None:
+        """
+        Debug helper function to capture detailed page state on errors.
+
+        Args:
+            context: Description of when this debug was called
+        """
+        if not self.driver:
+            logger.error("Cannot debug page state - driver not initialized")
+            return
+
+        try:
+            # Basic page info
+            current_url = self.driver.current_url
+            page_title = self.driver.title
+            logger.debug(f"=== DEBUG PAGE STATE: {context} ===")
+            logger.debug(f"Current URL: {current_url}")
+            logger.debug(f"Page title: {page_title}")
+
+            # Check if we're on X.com
+            if "x.com" not in current_url.lower():
+                logger.warning(f"Not on X.com! Current URL: {current_url}")
+
+            # Get all elements with data-testid attributes
+            logger.debug("Checking elements with data-testid attributes:")
+            try:
+                testid_elements = self.driver.find_elements(By.CSS_SELECTOR, "[data-testid]")
+                testid_values = []
+                for elem in testid_elements[:20]:  # Limit to first 20
+                    testid = elem.get_attribute("data-testid")
+                    if testid:
+                        testid_values.append(testid)
+
+                if testid_values:
+                    logger.debug(f"Found data-testid elements: {', '.join(set(testid_values))}")
+                else:
+                    logger.warning("No data-testid elements found!")
+            except Exception as e:
+                logger.debug(f"Error getting data-testid elements: {e}")
+
+            # Get main structural elements
+            logger.debug("Checking main structural elements:")
+            structural_selectors = [
+                "main",
+                "div[role='main']",
+                "section",
+                "article",
+                "nav",
+                "header",
+                "div[id]",
+                "div[class]",
+            ]
+
+            for selector in structural_selectors:
+                try:
+                    elements = self.driver.find_elements(By.CSS_SELECTOR, selector)
+                    if elements:
+                        logger.debug(f"  ✓ {selector}: {len(elements)} elements")
+                        # Show first few elements with their attributes
+                        for i, elem in enumerate(elements[:3]):
+                            try:
+                                tag = elem.tag_name
+                                elem_id = elem.get_attribute("id") or "no-id"
+                                elem_class = elem.get_attribute("class") or "no-class"
+                                elem_role = elem.get_attribute("role") or "no-role"
+                                logger.debug(
+                                    f"    [{i}] {tag}: id='{elem_id}', class='{elem_class[:50]}...', role='{elem_role}'"
+                                )
+                            except Exception as e:
+                                logger.debug(f"    [{i}] Error getting element info: {e}")
+                    else:
+                        logger.debug(f"  ✗ {selector}: Not found")
+                except Exception as e:
+                    logger.debug(f"  ✗ {selector}: Error - {e}")
+
+            # Check for common error patterns
+            try:
+                body_element = self.driver.find_element(By.TAG_NAME, "body")
+                body_text = body_element.text[:1000] if body_element.text else "No text content"
+                logger.debug(f"Page content sample (first 1000 chars): {body_text}")
+
+                # Check for error messages
+                error_patterns = [
+                    "rate limit",
+                    "error",
+                    "blocked",
+                    "suspended",
+                    "not found",
+                    "try again",
+                    "temporarily unavailable",
+                    "something went wrong",
+                    "this content is not available",
+                    "please try again",
+                ]
+                page_text_lower = body_text.lower()
+                found_errors = [pattern for pattern in error_patterns if pattern in page_text_lower]
+                if found_errors:
+                    logger.warning(f"Potential issues detected: {', '.join(found_errors)}")
+
+            except Exception as e:
+                logger.debug(f"Could not extract page content: {e}")
+
+            # Check for modern X.com structure
+            logger.debug("Checking for modern X.com structure:")
+            modern_selectors = [
+                "div[data-testid]",
+                "section[role='region']",
+                "main[role='main']",
+                "div[dir='ltr']",
+                "div[dir='auto']",
+                "div[lang]",
+                "nav[role='navigation']",
+                "header[role='banner']",
+            ]
+
+            for selector in modern_selectors:
+                try:
+                    elements = self.driver.find_elements(By.CSS_SELECTOR, selector)
+                    if elements:
+                        logger.debug(f"  ✓ {selector}: {len(elements)} elements")
+                except Exception:
+                    pass
+
+            # Take screenshot for debugging
+            self._save_debug_screenshot(context)
+
+            logger.debug("=== END DEBUG PAGE STATE ===")
+
+        except Exception as e:
+            logger.error(f"Error during page state debugging: {e}")
+
+    def _save_debug_screenshot(self, context: str) -> None:
+        """
+        Save a screenshot for debugging purposes.
+
+        Args:
+            context: Context description for filename
+        """
+        if not self.driver:
+            return
+
+        try:
+            # Create debug directory if it doesn't exist
+            debug_dir = Path("logs/debug_screenshots")
+            debug_dir.mkdir(parents=True, exist_ok=True)
+
+            # Generate filename with timestamp
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            safe_context = "".join(c for c in context if c.isalnum() or c in (" ", "-", "_")).rstrip()
+            safe_context = safe_context.replace(" ", "_")[:50]  # Limit length
+
+            filename = f"{timestamp}_{safe_context}.png"
+            filepath = debug_dir / filename
+
+            # Take screenshot
+            self.driver.save_screenshot(str(filepath))
+            logger.debug(f"Debug screenshot saved: {filepath}")
+
+        except Exception as e:
+            logger.debug(f"Could not save debug screenshot: {e}")
+
+    def _check_element_exists(self, selector: str, timeout: int = 5) -> bool:
+        """
+        Check if an element exists with detailed logging.
+
+        Args:
+            selector: CSS selector to check
+            timeout: Timeout in seconds
+
+        Returns:
+            True if element exists, False otherwise
+        """
+        if not self.driver:
+            return False
+
+        try:
+            WebDriverWait(self.driver, timeout).until(ec.presence_of_element_located((By.CSS_SELECTOR, selector)))
+            logger.debug(f"Element found: {selector}")
+            return True
+        except Exception as e:
+            logger.debug(f"Element not found: {selector} - {e}")
+            return False
 
     def save_tweets_to_json(self, tweets: list[Tweet], filename: str) -> bool:
         """

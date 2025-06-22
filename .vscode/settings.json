@@ -33,6 +33,8 @@
   // Ruff extension settings
   "ruff.enable": true,
   "ruff.lint.enable": true,
+  "ruff.configuration": "./pyproject.toml",
+  "ruff.importStrategy": "fromEnvironment",
 
   // Editor settings
   "editor.rulers": [120],

@@ -2,7 +2,6 @@
 name = "tor-selenium-x"
 version = "0.1.0"
 description = "Modern Python project with Tor and Selenium integration"
-readme = "README.md"
 requires-python = ">=3.12"
 license = { text = "MIT" }
 authors = [{ name = "Your Name", email = "your.email@example.com" }]
@@ -18,11 +17,11 @@ classifiers = [
 ]
 
 dependencies = [
- "httpx>=0.25.0",
  "loguru>=0.7.0",
  "tbselenium>=0.7.0",
  "selenium>=4.15.0",
- "stem>=1.8.0"
+ "stem>=1.8.0",
+ "requests>=2.31.0"
 ]
 
 [project.optional-dependencies]
@@ -42,7 +41,7 @@ Repository = "https://github.com/username/tor-selenium-x"
 "Bug Tracker" = "https://github.com/username/tor-selenium-x/issues"
 
 [project.scripts]
-tor-scraper = "src.main:main"
+tor-scraper = "main:main"
 
 [build-system]
 requires = ["hatchling"]
@@ -50,6 +49,7 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src"]
+include = ["src/**/*.py"]
 
 
 [tool.ruff]
@@ -71,7 +71,6 @@ select = [
  "SIM", # flake8-simplify
  "RUF", # Ruff-specific rules
 ]
-ignore = []
 
 [tool.ruff.lint.isort]
 known-first-party = ["src"]

@@ -3,6 +3,7 @@
 Unit tests for utility functions
 """
 
+import os
 from unittest.mock import Mock, patch
 
 import pytest
@@ -10,12 +11,15 @@ from selenium.webdriver.common.by import By
 
 from src.utils import (
     clean_text,
+    configure_logging,
     create_safe_filename,
     extract_urls_from_text,
     format_timestamp,
     is_valid_url,
     parse_x_url,
+    setup_file_logging,
     validate_x_username,
+    wait_for_element,
 )
 
 
@@ -159,7 +163,6 @@ class TestSeleniumHelpers:
     @patch("src.utils.ec")
     def test_wait_for_element_success(self, mock_ec, mock_wait):
         """Test successful element waiting"""
-        from src.utils import wait_for_element
 
         # Mock successful wait
         mock_driver = Mock()
@@ -174,7 +177,7 @@ class TestSeleniumHelpers:
     @patch("src.utils.WebDriverWait")
     def test_wait_for_element_timeout(self, mock_wait):
         """Test element waiting timeout"""
-        from src.utils import TimeoutException, wait_for_element
+        from src.utils import TimeoutException
 
         # Mock timeout
         mock_driver = Mock()
@@ -184,6 +187,43 @@ class TestSeleniumHelpers:
 
         result = wait_for_element(mock_driver, By.ID, "test-id")
         assert result is False
+
+
+class TestLoggingConfiguration:
+    """Test logging configuration functions"""
+
+    def test_configure_logging_default(self):
+        """Test default logging configuration"""
+        with patch("src.utils.logger") as mock_logger:
+            configure_logging()
+
+            mock_logger.remove.assert_called_once()
+            mock_logger.add.assert_called_once()
+
+    def test_configure_logging_with_level(self):
+        """Test logging configuration with specific level"""
+        with patch("src.utils.logger") as mock_logger:
+            configure_logging(level="DEBUG")
+
+            mock_logger.remove.assert_called_once()
+            mock_logger.add.assert_called_once()
+
+    def test_configure_logging_from_env(self):
+        """Test logging configuration from environment variable"""
+        with patch.dict(os.environ, {"LOG_LEVEL": "WARNING"}), patch("src.utils.logger") as mock_logger:
+            configure_logging()
+
+            # Check that the logger was called with the env var level
+            call_args = mock_logger.add.call_args
+            assert "WARNING" in str(call_args)
+
+    def test_setup_file_logging(self):
+        """Test file logging setup"""
+        with patch("src.utils.logger") as mock_logger, patch("pathlib.Path.mkdir") as mock_mkdir:
+            setup_file_logging("test.log")
+
+            mock_mkdir.assert_called_once_with(parents=True, exist_ok=True)
+            mock_logger.add.assert_called_once()
 
 
 if __name__ == "__main__":

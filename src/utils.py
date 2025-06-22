@@ -4,8 +4,10 @@ Utility functions for X scraper
 """
 
 import re
+import sys
 import time
-from datetime import datetime
+from datetime import UTC, datetime
+from typing import Final
 from urllib.parse import urlparse
 
 from loguru import logger
@@ -13,6 +15,71 @@ from selenium.common.exceptions import NoSuchElementException, TimeoutException
 from selenium.webdriver.remote.webdriver import WebDriver
 from selenium.webdriver.support import expected_conditions as ec
 from selenium.webdriver.support.ui import WebDriverWait
+
+# Constants
+DEFAULT_LOG_FORMAT: Final[str] = (
+    "<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <8}</level> | "
+    "<cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>"
+)
+DEFAULT_LOG_LEVEL: Final[str] = "INFO"
+
+
+def configure_logging(
+    level: str | None = None,
+    format_string: str = DEFAULT_LOG_FORMAT,
+    remove_default: bool = True,
+) -> None:
+    """
+    Configure loguru logger with specified settings.
+
+    Args:
+        level: Log level (DEBUG, INFO, WARNING, ERROR, CRITICAL).
+               If None, uses LOG_LEVEL environment variable or default.
+        format_string: Log format string
+        remove_default: Whether to remove default logger configuration
+    """
+    import os
+
+    if level is None:
+        level = os.getenv("LOG_LEVEL", DEFAULT_LOG_LEVEL).upper()
+
+    if remove_default:
+        logger.remove()
+
+    logger.add(
+        sys.stderr,
+        format=format_string,
+        level=level,
+    )
+
+
+def setup_file_logging(
+    log_file: str = "logs/app.log",
+    level: str = "DEBUG",
+    rotation: str = "10 MB",
+    retention: str = "1 week",
+) -> None:
+    """
+    Add file logging to the configured logger.
+
+    Args:
+        log_file: Path to log file
+        level: Log level for file logging
+        rotation: When to rotate log files
+        retention: How long to keep old log files
+    """
+    from pathlib import Path
+
+    log_path = Path(log_file)
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+
+    logger.add(
+        log_file,
+        level=level,
+        rotation=rotation,
+        retention=retention,
+        format=DEFAULT_LOG_FORMAT,
+    )
 
 
 def wait_for_element(driver: WebDriver, by: str, value: str, timeout: int = 10, poll_frequency: float = 0.5) -> bool:
@@ -73,11 +140,13 @@ def safe_click(driver: WebDriver, by: str, value: str, timeout: int = 10) -> boo
         True if click was successful, False otherwise
     """
     try:
-        if wait_for_clickable(driver, by, value, timeout):
-            element = driver.find_element(by, value)  # type: ignore
-            element.click()
-            return True
-        return False
+        if not wait_for_clickable(driver, by, value, timeout):
+            return False
+
+        element = driver.find_element(by, value)  # type: ignore
+        element.click()
+        return True
+
     except Exception as e:
         logger.error(f"Error clicking element {by}={value}: {e}")
         return False
@@ -101,13 +170,15 @@ def safe_send_keys(
         True if successful, False otherwise
     """
     try:
-        if wait_for_element(driver, by, value, timeout):
-            element = driver.find_element(by, value)  # type: ignore
-            if clear_first:
-                element.clear()
-            element.send_keys(text)
-            return True
-        return False
+        if not wait_for_element(driver, by, value, timeout):
+            return False
+
+        element = driver.find_element(by, value)  # type: ignore
+        if clear_first:
+            element.clear()
+        element.send_keys(text)
+        return True
+
     except Exception as e:
         logger.error(f"Error sending keys to element {by}={value}: {e}")
         return False
@@ -292,16 +363,24 @@ def format_timestamp(timestamp: int | float | str) -> str:
     """
     try:
         if isinstance(timestamp, str):
-            # Try to parse as datetime string
-            dt = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
-            return dt.strftime("%Y-%m-%d %H:%M:%S")
+            return _format_iso_timestamp(timestamp)
         else:
-            # Assume unix timestamp and treat as UTC
-            dt = datetime.utcfromtimestamp(float(timestamp))
-            return dt.strftime("%Y-%m-%d %H:%M:%S")
+            return _format_unix_timestamp(timestamp)
     except Exception as e:
         logger.error(f"Error formatting timestamp {timestamp}: {e}")
         return str(timestamp)
+
+
+def _format_iso_timestamp(timestamp_str: str) -> str:
+    """Format ISO datetime string."""
+    dt = datetime.fromisoformat(timestamp_str.replace("Z", "+00:00"))
+    return dt.strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _format_unix_timestamp(timestamp: int | float) -> str:
+    """Format Unix timestamp."""
+    dt = datetime.fromtimestamp(float(timestamp), tz=UTC)
+    return dt.strftime("%Y-%m-%d %H:%M:%S")
 
 
 def create_safe_filename(text: str, max_length: int = 200) -> str:
@@ -328,18 +407,14 @@ def create_safe_filename(text: str, max_length: int = 200) -> str:
     return safe_text.strip("_")
 
 
-def retry_on_failure(
-    func, max_retries: int = 3, delay: float = 1.0, backoff_factor: float = 2.0, exceptions: tuple = (Exception,)
-):
+def retry_on_failure(max_retries: int = 3, delay: float = 1.0, backoff_factor: float = 2.0):
     """
     Decorator to retry a function on failure.
 
     Args:
-        func: Function to retry
         max_retries: Maximum number of retries
         delay: Initial delay between retries
         backoff_factor: Backoff multiplier
-        exceptions: Exceptions to catch
 
     Returns:
         Decorated function
@@ -348,15 +423,14 @@ def retry_on_failure(
     def decorator(func):
         def wrapper(*args, **kwargs):
             current_delay = delay
+
             for attempt in range(max_retries + 1):
                 try:
                     return func(*args, **kwargs)
-                except exceptions as e:
+                except Exception:
                     if attempt == max_retries:
-                        logger.error(f"Function {func.__name__} failed after {max_retries} retries: {e}")
                         raise
 
-                    logger.warning(f"Attempt {attempt + 1} failed for {func.__name__}: {e}")
                     time.sleep(current_delay)
                     current_delay *= backoff_factor
 
@@ -413,25 +487,258 @@ def parse_x_url(url: str) -> dict[str, str | None]:
 
     try:
         parsed = urlparse(url)
-        if parsed.netloc not in ["twitter.com", "x.com", "www.twitter.com", "www.x.com"]:
+        if not _is_valid_x_domain(parsed.netloc):
             return result
 
         path_parts = [p for p in parsed.path.split("/") if p]
 
-        if len(path_parts) >= 1:
-            result["username"] = path_parts[0]
-            result["is_valid"] = True
+        if not path_parts:
+            return result
 
-            if len(path_parts) >= 2:
-                if path_parts[1] == "status" and len(path_parts) >= 3:
-                    result["tweet_id"] = path_parts[2]
-                    result["url_type"] = "tweet"
-                else:
-                    result["url_type"] = "profile"
-            else:
-                result["url_type"] = "profile"
+        # Extract username and determine URL type
+        result["username"] = path_parts[0]
+        result["is_valid"] = True
+        result["url_type"] = _determine_url_type(path_parts)
+
+        # Extract tweet ID if it's a tweet URL
+        if result["url_type"] == "tweet" and len(path_parts) >= 3:
+            result["tweet_id"] = path_parts[2]
 
     except Exception as e:
         logger.error(f"Error parsing X URL {url}: {e}")
 
     return result
+
+
+def _is_valid_x_domain(netloc: str) -> bool:
+    """Check if the netloc is a valid X domain."""
+    return netloc in ["twitter.com", "x.com", "www.twitter.com", "www.x.com"]
+
+
+def _determine_url_type(path_parts: list[str]) -> str:
+    """Determine URL type based on path parts."""
+    if len(path_parts) >= 2 and path_parts[1] == "status" and len(path_parts) >= 3:
+        return "tweet"
+    return "profile"
+
+
+def find_element_by_selectors(driver: WebDriver, selectors: list[str], timeout: int = 5):
+    """
+    Try multiple CSS selectors and return the first found element.
+
+    Args:
+        driver: WebDriver instance
+        selectors: List of CSS selectors to try
+        timeout: Timeout for each selector attempt
+
+    Returns:
+        First found element or None
+    """
+    from selenium.webdriver.common.by import By
+
+    for selector in selectors:
+        try:
+            elements = driver.find_elements(By.CSS_SELECTOR, selector)
+            if elements:
+                logger.debug(f"Found element with selector: {selector}")
+                return elements[0]
+        except NoSuchElementException:
+            continue
+        except Exception as e:
+            logger.debug(f"Error trying selector '{selector}': {e}")
+            continue
+
+    logger.debug(f"No elements found with any of the selectors: {selectors}")
+    return None
+
+
+def find_elements_by_selectors(driver: WebDriver, selectors: list[str]) -> list:
+    """
+    Try multiple CSS selectors and return elements from the first successful selector.
+
+    Args:
+        driver: WebDriver instance
+        selectors: List of CSS selectors to try
+
+    Returns:
+        List of elements from first successful selector, empty list if none found
+    """
+    from selenium.webdriver.common.by import By
+
+    for selector in selectors:
+        try:
+            elements = driver.find_elements(By.CSS_SELECTOR, selector)
+            if elements:
+                logger.debug(f"Found {len(elements)} elements with selector: {selector}")
+                return elements
+        except Exception as e:
+            logger.debug(f"Error trying selector '{selector}': {e}")
+            continue
+
+    logger.debug(f"No elements found with any of the selectors: {selectors}")
+    return []
+
+
+def extract_text_by_selectors(element, selectors: list[str]) -> str:
+    """
+    Extract text content using multiple CSS selectors.
+
+    Args:
+        element: Selenium WebElement to search within
+        selectors: List of CSS selectors to try
+
+    Returns:
+        Cleaned text content or empty string
+    """
+    from selenium.webdriver.common.by import By
+
+    for selector in selectors:
+        try:
+            text_elements = element.find_elements(By.CSS_SELECTOR, selector)
+            if text_elements:
+                text_parts = []
+                for elem in text_elements:
+                    text = elem.text.strip()
+                    if text:
+                        text_parts.append(text)
+
+                if text_parts:
+                    combined_text = " ".join(text_parts).strip()
+                    if combined_text:
+                        logger.debug(f"Found text with selector: {selector}")
+                        return clean_text(combined_text)
+        except Exception as e:
+            logger.debug(f"Error extracting text with selector '{selector}': {e}")
+            continue
+
+    return ""
+
+
+def extract_count_by_selectors(element, selectors: list[str], parse_count_func) -> int:
+    """
+    Extract numeric count using multiple CSS selectors.
+
+    Args:
+        element: Selenium WebElement to search within
+        selectors: List of CSS selectors to try
+        parse_count_func: Function to parse count string to integer
+
+    Returns:
+        Parsed count as integer, 0 if not found or parsing fails
+    """
+    from selenium.webdriver.common.by import By
+
+    for selector in selectors:
+        try:
+            count_elements = element.find_elements(By.CSS_SELECTOR, selector)
+            for count_elem in count_elements:
+                count_text = count_elem.text.strip()
+                if count_text and any(c.isdigit() for c in count_text):
+                    count = parse_count_func(count_text)
+                    if count is not None and count >= 0:
+                        logger.debug(f"Found count {count} with selector: {selector}")
+                        return count
+        except Exception as e:
+            logger.debug(f"Error extracting count with selector '{selector}': {e}")
+            continue
+
+    return 0
+
+
+def extract_attribute_by_selectors(element, selectors: list[str], attribute: str) -> str:
+    """
+    Extract attribute value using multiple CSS selectors.
+
+    Args:
+        element: Selenium WebElement to search within
+        selectors: List of CSS selectors to try
+        attribute: Attribute name to extract
+
+    Returns:
+        Attribute value or empty string
+    """
+    from selenium.webdriver.common.by import By
+
+    for selector in selectors:
+        try:
+            attr_elements = element.find_elements(By.CSS_SELECTOR, selector)
+            for attr_elem in attr_elements:
+                attr_value = attr_elem.get_attribute(attribute)
+                if attr_value:
+                    logger.debug(f"Found {attribute} attribute with selector: {selector}")
+                    return attr_value.strip()
+        except Exception as e:
+            logger.debug(f"Error extracting {attribute} with selector '{selector}': {e}")
+            continue
+
+    return ""
+
+
+def extract_text_from_driver_by_selectors(driver: WebDriver | None, selectors: list[str]) -> str:
+    """
+    Extract text content from driver using multiple CSS selectors.
+
+    Args:
+        driver: WebDriver instance (can be None)
+        selectors: List of CSS selectors to try
+
+    Returns:
+        Cleaned text content or empty string
+    """
+    from selenium.webdriver.common.by import By
+
+    if not driver:
+        return ""
+
+    for selector in selectors:
+        try:
+            text_elements = driver.find_elements(By.CSS_SELECTOR, selector)
+            if text_elements:
+                text_parts = []
+                for elem in text_elements:
+                    text = elem.text.strip()
+                    if text:
+                        text_parts.append(text)
+
+                if text_parts:
+                    combined_text = " ".join(text_parts).strip()
+                    if combined_text:
+                        logger.debug(f"Found text with selector: {selector}")
+                        return clean_text(combined_text)
+        except Exception as e:
+            logger.debug(f"Error extracting text with selector '{selector}': {e}")
+            continue
+
+    return ""
+
+
+def extract_attribute_from_driver_by_selectors(driver: WebDriver | None, selectors: list[str], attribute: str) -> str:
+    """
+    Extract attribute value from driver using multiple CSS selectors.
+
+    Args:
+        driver: WebDriver instance (can be None)
+        selectors: List of CSS selectors to try
+        attribute: Attribute name to extract
+
+    Returns:
+        Attribute value or empty string
+    """
+    from selenium.webdriver.common.by import By
+
+    if not driver:
+        return ""
+
+    for selector in selectors:
+        try:
+            attr_elements = driver.find_elements(By.CSS_SELECTOR, selector)
+            for attr_elem in attr_elements:
+                attr_value = attr_elem.get_attribute(attribute)
+                if attr_value:
+                    logger.debug(f"Found {attribute} attribute with selector: {selector}")
+                    return attr_value.strip()
+        except Exception as e:
+            logger.debug(f"Error extracting {attribute} with selector '{selector}': {e}")
+            continue
+
+    return ""
