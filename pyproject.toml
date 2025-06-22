@@ -21,7 +21,8 @@ dependencies = [
  "tbselenium>=0.7.0",
  "selenium>=4.15.0",
  "stem>=1.8.0",
- "requests>=2.31.0"
+ "requests>=2.31.0",
+ "python-dotenv>=1.0.0"
 ]
 
 [project.optional-dependencies]
@@ -36,12 +37,9 @@ selenium = ["selenium>=4.15.0", "webdriver-manager>=4.0.0"]
 all = ["tor-selenium-x[dev,selenium]"]
 
 [project.urls]
-Homepage = "https://github.com/username/tor-selenium-x"
-Repository = "https://github.com/username/tor-selenium-x"
-"Bug Tracker" = "https://github.com/username/tor-selenium-x/issues"
-
-[project.scripts]
-tor-scraper = "main:main"
+Homepage = "https://github.com/posaune0423/tor-selenium-x"
+Repository = "https://github.com/posaune0423/tor-selenium-x"
+"Bug Tracker" = "https://github.com/posaune0423/tor-selenium-x/issues"
 
 [build-system]
 requires = ["hatchling"]
@@ -84,7 +82,7 @@ line-ending = "auto"
 
 [tool.pytest.ini_options]
 minversion = "7.0"
-addopts = "-v --cov=src --cov-report=term-missing --cov-report=html"
+addopts = "-v --cov=src --cov-report=term-missing --cov-report=html:reports/coverage"
 testpaths = ["tests"]
 python_files = ["test_*.py", "*_test.py"]
 python_classes = ["Test*"]
@@ -97,6 +95,7 @@ markers = [
 [tool.coverage.run]
 source = ["src"]
 omit = ["*/tests/*", "*/__pycache__/*"]
+data_file = "reports/.coverage"
 
 [tool.coverage.report]
 exclude_lines = [
@@ -106,3 +105,6 @@ exclude_lines = [
  "raise NotImplementedError",
 ]
 show_missing = true
+
+[tool.coverage.html]
+directory = "reports/coverage"

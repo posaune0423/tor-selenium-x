@@ -30,28 +30,24 @@ help:
 	@echo "  fix        - 自動修正を実行 (Ruff)"
 	@echo "  check      - lint + test を実行"
 
-# ログディレクトリを作成
-logs-dir:
-	mkdir -p logs
-
 # ====================
 # Development Environment
 # ====================
 
 # Docker イメージをビルド (開発環境)
-build: logs-dir
+build:
 	docker-compose -f docker/development/docker-compose.yml build
 
 # Tor Scraper を実行 (開発環境)
-run: logs-dir
+run:
 	docker-compose -f docker/development/docker-compose.yml up --build tor-scraper
 
 # 開発モードで実行
-dev: logs-dir
+dev:
 	docker-compose -f docker/development/docker-compose.yml --profile dev up --build tor-scraper-dev
 
 # Docker環境でテストを実行
-test-docker: logs-dir
+test-docker:
 	docker-compose -f docker/development/docker-compose.yml --profile test up --build tor-scraper-test
 
 # コンテナのログを表示 (開発環境)
@@ -76,11 +72,11 @@ clean:
 # ====================
 
 # Docker イメージをビルド (本番環境)
-build-prod: logs-dir
+build-prod:
 	docker-compose -f docker/production/docker-compose.yml build
 
 # Tor Scraper を実行 (本番環境)
-run-prod: logs-dir
+run-prod:
 	docker-compose -f docker/production/docker-compose.yml up --build tor-scraper
 
 # コンテナのログを表示 (本番環境)

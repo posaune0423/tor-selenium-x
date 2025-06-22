@@ -7,10 +7,14 @@ import os
 import sys
 from pathlib import Path
 
+from dotenv import load_dotenv
 from loguru import logger
 
-from src.utils import configure_logging
+from src.utils import configure_logging, random_delay
 from src.x_scraper import XScraper
+
+# Load environment variables from .env file
+load_dotenv()
 
 
 def find_tor_browser_path() -> str | None:
@@ -113,6 +117,31 @@ def main() -> None:
 def run_examples(scraper: XScraper) -> None:
     """Run example scraping operations"""
     try:
+        # Example 0: Login flow (optional)
+        logger.info("=== Example 0: Login to X ===")
+        login_attempted = False
+
+        # Check if credentials are available from environment variables
+        email = os.getenv("X_EMAIL")
+        password = os.getenv("X_PASSWORD")
+        username = os.getenv("X_USERNAME")
+
+        if email and password and username:
+            from src.models import XCredentials
+
+            credentials = XCredentials(email=email, password=password, username=username)
+
+            logger.info("Attempting login with provided credentials...")
+            if scraper.login(credentials):
+                logger.success("Successfully logged in to X!")
+                login_attempted = True
+            else:
+                logger.warning("Login failed, continuing with anonymous browsing")
+        else:
+            logger.info("No login credentials found in environment variables")
+            logger.info("Set X_EMAIL, X_PASSWORD, and X_USERNAME to enable login")
+            logger.info("Login example will be skipped")
+
         # Example 1: Search for tweets
         logger.info("=== Example 1: Search for tweets ===")
         tweets = scraper.search_tweets("Python", max_tweets=5)
@@ -142,6 +171,30 @@ def run_examples(scraper: XScraper) -> None:
             scraper.save_profile_to_json(profile, f"profile_{profile.username}.json")
         else:
             logger.error("Failed to get user profile")
+
+        # Example 3: Authenticated operations (if logged in)
+        if login_attempted and scraper.session.is_logged_in:
+            logger.info("=== Example 3: Authenticated operations ===")
+            logger.info(f"Logged in as: @{scraper.session.current_user}")
+
+            # Get tweets from the user's timeline (home feed)
+            logger.info("Getting tweets from home timeline...")
+            try:
+                # Navigate to home timeline
+                if scraper.driver:
+                    scraper.driver.get("https://x.com/home")
+                    random_delay(3, 5)
+                    logger.success("Successfully accessed home timeline")
+
+                    # In a real implementation, you might collect tweets from the timeline
+                    logger.info("Home timeline access verified (tweet collection would go here)")
+                else:
+                    logger.error("Driver not available")
+            except Exception as e:
+                logger.error(f"Error accessing authenticated features: {e}")
+        else:
+            logger.info("=== Example 3: Skipped (not logged in) ===")
+            logger.info("Login required for authenticated operations")
 
     except Exception as e:
         logger.error(f"Error in examples: {e}")

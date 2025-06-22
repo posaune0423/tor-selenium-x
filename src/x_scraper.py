@@ -4,34 +4,43 @@ X (Twitter) scraper using Tor Browser with tbselenium
 """
 
 import json
+import random
 import time
 from datetime import datetime
 from pathlib import Path
 
 import tbselenium.common as tb_common
 from loguru import logger
-from selenium.common.exceptions import NoSuchElementException
+from selenium.common.exceptions import NoSuchElementException, TimeoutException
 from selenium.webdriver.common.by import By
+from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.support import expected_conditions as ec
 from selenium.webdriver.support.ui import WebDriverWait
 from tbselenium.tbdriver import TorBrowserDriver
 from tbselenium.utils import launch_tbb_tor_with_stem
 
-from src.models import Tweet, UserProfile
+from src.models import SessionState, Tweet, UserProfile, XCredentials
 from src.utils import (
+    add_anti_detection_measures,
+    are_cookies_expired,
+    detect_and_handle_captcha,
     extract_attribute_from_driver_by_selectors,
     extract_count_by_selectors,
     extract_text_by_selectors,
     extract_text_from_driver_by_selectors,
     find_elements_by_selectors,
     get_user_agent,
+    load_cookies_from_file,
     random_delay,
+    safe_click_element,
+    save_cookies_to_file,
+    simulate_human_click_delay,
     validate_x_username,
 )
 
 
 class XScraper:
-    """X (Twitter) scraper using Tor Browser"""
+    """X (Twitter) scraper using Tor Browser with advanced login capabilities"""
 
     def __init__(
         self,
@@ -41,6 +50,7 @@ class XScraper:
         socks_port: int = 9150,
         control_port: int = 9151,
         data_dir: str | None = None,
+        credentials: XCredentials | None = None,
     ):
         """
         Initialize X scraper.
@@ -52,6 +62,7 @@ class XScraper:
             socks_port: SOCKS proxy port
             control_port: Tor control port
             data_dir: Directory to store data files
+            credentials: X login credentials
         """
         self.tbb_path = Path(tbb_path).resolve()
         self.headless = headless
@@ -63,16 +74,17 @@ class XScraper:
         if data_dir:
             self.data_dir = Path(data_dir)
         else:
-            self.data_dir = Path.cwd() / "data"
-        self.data_dir.mkdir(exist_ok=True)
+            self.data_dir = Path.cwd() / "reports" / "data"
+        self.data_dir.mkdir(parents=True, exist_ok=True)
 
         # Driver and process management
         self.driver: TorBrowserDriver | None = None
         self.tor_process = None
 
-        # Session state
-        self.is_logged_in = False
-        self.current_user = None
+        # Session state and credentials
+        self.credentials = credentials
+        self.session = SessionState()
+        self.cookies_file = self.data_dir / "session_cookies.json"
 
         logger.info(f"Initialized X scraper with TBB path: {self.tbb_path}")
 
@@ -94,12 +106,388 @@ class XScraper:
                 logger.error("Failed to connect to Tor network")
                 return False
 
+            # Apply anti-detection measures
+            if self.driver:
+                add_anti_detection_measures(self.driver)
+
             logger.success("Successfully connected to Tor network")
             return True
 
         except Exception as e:
             logger.error(f"Error starting X scraper: {e}")
             return False
+
+    def login(self, credentials: XCredentials | None = None) -> bool:
+        """
+        Login to X with provided credentials.
+
+        Args:
+            credentials: Login credentials (uses instance credentials if not provided)
+
+        Returns:
+            True if login successful, False otherwise
+        """
+        if not self.driver:
+            logger.error("Driver not initialized. Call start() first.")
+            return False
+
+        # Use provided credentials or instance credentials
+        creds = credentials or self.credentials
+        if not creds:
+            logger.error("No credentials provided for login")
+            return False
+
+        try:
+            # Check if we have valid session cookies
+            if self._try_restore_session():
+                logger.success("Restored session from cookies")
+                self.session.is_logged_in = True
+                self.session.current_user = creds.username
+                return True
+
+            # Perform fresh login
+            logger.info("Starting fresh login process")
+            return self._perform_login(creds)
+
+        except Exception as e:
+            logger.error(f"Login process failed: {e}")
+            return False
+
+    def _try_restore_session(self) -> bool:
+        """
+        Try to restore session from saved cookies.
+
+        Returns:
+            True if session restored successfully, False otherwise
+        """
+        if not self.driver:
+            return False
+
+        try:
+            # Load cookies from file
+            cookies = load_cookies_from_file(str(self.cookies_file))
+            if not cookies:
+                logger.debug("No saved cookies found")
+                return False
+
+            # Check if cookies are expired
+            if are_cookies_expired(cookies):
+                logger.info("Saved cookies are expired")
+                return False
+
+            # Navigate to X homepage first
+            logger.info("Attempting to restore session from cookies")
+            self.driver.get("https://x.com")
+            random_delay(2, 4)
+
+            # Add cookies to driver
+            for cookie in cookies:
+                try:
+                    self.driver.add_cookie(cookie)
+                except Exception as e:
+                    logger.debug(f"Failed to add cookie {cookie.get('name', 'unknown')}: {e}")
+
+            # Navigate to home to verify session
+            self.driver.get("https://x.com/home")
+            random_delay(3, 5)
+
+            # Check if we're logged in by looking for login indicators
+            if self._verify_login_status():
+                self.session.session_cookies = cookies
+                logger.success("Session successfully restored from cookies")
+                return True
+            else:
+                logger.info("Cookie session invalid, fresh login required")
+                return False
+
+        except Exception as e:
+            logger.warning(f"Failed to restore session: {e}")
+            return False
+
+    def _perform_login(self, credentials: XCredentials) -> bool:
+        """
+        Perform fresh login with credentials.
+
+        Args:
+            credentials: Login credentials
+
+        Returns:
+            True if login successful, False otherwise
+        """
+        if not self.driver:
+            return False
+
+        try:
+            # Navigate to login page
+            logger.info("Navigating to login page")
+            self.driver.get("https://x.com/i/flow/login")
+            random_delay(3, 5)
+
+            # Handle email/username input
+            if not self._handle_initial_input(credentials.email):
+                return False
+
+            # Handle potential username verification step
+            if not self._handle_username_verification(credentials.username):
+                return False
+
+            # Handle password input
+            if not self._handle_password_input(credentials.password):
+                return False
+
+            # Verify successful login
+            if not self._verify_login_success():
+                return False
+
+            # Save session cookies for future use
+            self._save_session_cookies()
+
+            self.session.is_logged_in = True
+            self.session.current_user = credentials.username
+            self.session.login_timestamp = datetime.now().isoformat()
+
+            logger.success(f"Successfully logged in as @{credentials.username}")
+            return True
+
+        except Exception as e:
+            logger.error(f"Login process failed: {e}")
+            return False
+
+    def _handle_initial_input(self, email: str) -> bool:
+        """Handle email/username input step."""
+        if not self.driver:
+            return False
+
+        try:
+            # Wait for and find email input
+            logger.info("Looking for email/username input field")
+            email_input = WebDriverWait(self.driver, 30).until(
+                ec.presence_of_element_located((By.CSS_SELECTOR, "input[name='text']"))
+            )
+
+            # Clear and enter email with human-like typing
+            email_input.clear()
+            random_delay(0.5, 1.5)
+
+            # Type email character by character with human delays
+            for char in email:
+                email_input.send_keys(char)
+                time.sleep(random.uniform(0.05, 0.15))
+
+            random_delay(1, 2)
+
+            # Find and click Next button
+            next_button_selectors = [
+                "//span[text()='Next']//ancestor::button",
+                "[data-testid='LoginForm_Login_Button']",
+                "button[role='button']:has-text('Next')",
+                "div[role='button'] span:has-text('Next')",
+            ]
+
+            next_button = None
+            for selector in next_button_selectors:
+                try:
+                    if selector.startswith("//"):
+                        next_button = self.driver.find_element(By.XPATH, selector)
+                    else:
+                        next_button = self.driver.find_element(By.CSS_SELECTOR, selector)
+                    break
+                except NoSuchElementException:
+                    continue
+
+            if not next_button:
+                logger.error("Could not find Next button")
+                return False
+
+            # Click Next button
+            simulate_human_click_delay()
+            safe_click_element(self.driver, next_button)
+
+            logger.info("Email submitted successfully")
+            random_delay(2, 4)
+            return True
+
+        except Exception as e:
+            logger.error(f"Failed to handle email input: {e}")
+            return False
+
+    def _handle_username_verification(self, username: str) -> bool:
+        """Handle optional username verification step."""
+        if not self.driver:
+            return False
+
+        try:
+            # Check if username verification step is present
+            # Wait briefly to see if username input appears
+            try:
+                WebDriverWait(self.driver, 5).until(
+                    ec.presence_of_element_located((By.CSS_SELECTOR, "input[name='text']"))
+                )
+
+                # Check current URL to determine if this is username verification
+                current_url = self.driver.current_url
+                if "identifier" in current_url or "LoginForm" in self.driver.page_source:
+                    logger.info("Username verification step detected")
+
+                    username_input = self.driver.find_element(By.CSS_SELECTOR, "input[name='text']")
+                    username_input.clear()
+                    random_delay(0.5, 1.0)
+
+                    # Type username with human-like delays
+                    for char in username:
+                        username_input.send_keys(char)
+                        time.sleep(random.uniform(0.05, 0.15))
+
+                    random_delay(1, 2)
+
+                    # Find and click Next button
+                    next_button = self.driver.find_element(By.XPATH, "//span[text()='Next']//ancestor::button")
+                    safe_click_element(self.driver, next_button)
+
+                    logger.info("Username verification completed")
+                    random_delay(2, 4)
+
+            except TimeoutException:
+                # No username verification needed
+                logger.debug("No username verification step detected")
+
+            return True
+
+        except Exception as e:
+            logger.warning(f"Username verification step failed: {e}")
+            # Don't fail completely, continue to password step
+            return True
+
+    def _handle_password_input(self, password: str) -> bool:
+        """Handle password input step."""
+        if not self.driver:
+            return False
+
+        try:
+            logger.info("Looking for password input field")
+
+            # Wait for password field to appear
+            password_input = WebDriverWait(self.driver, 30).until(
+                ec.presence_of_element_located((By.CSS_SELECTOR, "input[name='password']"))
+            )
+
+            # Clear and enter password
+            password_input.clear()
+            random_delay(0.5, 1.5)
+
+            # Type password with human-like delays
+            for char in password:
+                password_input.send_keys(char)
+                time.sleep(random.uniform(0.05, 0.12))
+
+            random_delay(1, 2)
+
+            # Submit password (Enter key or click login button)
+            password_input.send_keys(Keys.RETURN)
+
+            logger.info("Password submitted successfully")
+            random_delay(3, 6)  # Wait for login processing
+
+            return True
+
+        except Exception as e:
+            logger.error(f"Failed to handle password input: {e}")
+            return False
+
+    def _verify_login_status(self) -> bool:
+        """Check if currently logged in."""
+        if not self.driver:
+            return False
+
+        try:
+            # Check for logged-in indicators
+            logged_in_selectors = [
+                "[data-testid='primaryColumn']",
+                "[data-testid='AppTabBar_Home_Link']",
+                "[data-testid='SideNav_AccountSwitcher_Button']",
+            ]
+
+            for selector in logged_in_selectors:
+                try:
+                    WebDriverWait(self.driver, 5).until(ec.presence_of_element_located((By.CSS_SELECTOR, selector)))
+                    return True
+                except TimeoutException:
+                    continue
+
+            return False
+
+        except Exception:
+            return False
+
+    def _verify_login_success(self) -> bool:
+        """Verify that login was successful."""
+        if not self.driver:
+            return False
+
+        try:
+            logger.info("Verifying login success")
+
+            # Check for CAPTCHA
+            if not detect_and_handle_captcha(self.driver):
+                logger.warning("CAPTCHA detected during login")
+                return False
+
+            # Wait for main timeline or home page
+            timeline_selectors = [
+                "[data-testid='primaryColumn']",
+                "[data-testid='AppTabBar_Home_Link']",
+                "main[role='main']",
+            ]
+
+            for selector in timeline_selectors:
+                try:
+                    WebDriverWait(self.driver, 30).until(ec.presence_of_element_located((By.CSS_SELECTOR, selector)))
+                    logger.success("Login verification successful")
+                    return True
+                except TimeoutException:
+                    continue
+
+            logger.error("Login verification failed - could not find expected elements")
+            return False
+
+        except Exception as e:
+            logger.error(f"Login verification failed: {e}")
+            return False
+
+    def _save_session_cookies(self) -> None:
+        """Save current session cookies to file."""
+        if not self.driver:
+            return
+
+        try:
+            cookies = self.driver.get_cookies()
+            if cookies:
+                save_cookies_to_file(cookies, str(self.cookies_file))
+                self.session.session_cookies = cookies
+                logger.info(f"Saved {len(cookies)} session cookies")
+            else:
+                logger.warning("No cookies to save")
+
+        except Exception as e:
+            logger.error(f"Failed to save session cookies: {e}")
+
+    def ensure_logged_in(self) -> bool:
+        """
+        Ensure user is logged in, attempt login if not.
+
+        Returns:
+            True if logged in, False otherwise
+        """
+        if self.session.is_logged_in and self._verify_login_status():
+            logger.debug("Already logged in")
+            return True
+
+        if not self.credentials:
+            logger.error("No credentials available for login")
+            return False
+
+        logger.info("Not logged in, attempting login")
+        return self.login()
 
     def _start_tor_process(self) -> bool:
         """Start Tor process if using Stem."""

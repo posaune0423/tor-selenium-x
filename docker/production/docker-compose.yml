@@ -38,8 +38,7 @@ services:
 
     # ボリューム（本番では最小限）
     volumes:
-      - tor-scraper-data:/app/data
-      - tor-scraper-logs:/app/logs
+      - tor-scraper-data:/app/reports
 
     # ヘルスチェック
     healthcheck:
@@ -63,8 +62,6 @@ services:
 # 永続化ボリューム
 volumes:
   tor-scraper-data:
-    driver: local
-  tor-scraper-logs:
     driver: local
 
 # ネットワーク設定

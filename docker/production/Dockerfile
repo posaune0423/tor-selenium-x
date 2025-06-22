@@ -56,8 +56,8 @@ RUN uv sync --frozen --no-dev --no-editable
 # ソースコードをコピー
 COPY src/ ./src/
 
-# ログディレクトリとデータディレクトリを作成
-RUN mkdir -p /app/logs /app/data \
+# reports ディレクトリを作成
+RUN mkdir -p /app/reports \
     && chown -R appuser:appuser /app /opt/torbrowser
 
 # 本番用エントリーポイント

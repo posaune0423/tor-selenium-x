@@ -9,8 +9,7 @@ services:
       - ../../src:/app/src:ro
       - ../../tests:/app/tests:ro
       # データとログ出力用
-      - ../../data:/app/data
-      - ../../logs:/app/logs
+      - ../../reports:/app/reports
     environment:
       - PYTHONUNBUFFERED=1
       - PYTHONPATH=/app
@@ -39,8 +38,7 @@ services:
     volumes:
       - ../../src:/app/src
       - ../../tests:/app/tests
-      - ../../data:/app/data
-      - ../../logs:/app/logs
+      - ../../reports:/app/reports
     environment:
       - PYTHONUNBUFFERED=1
       - PYTHONPATH=/app
@@ -62,7 +60,7 @@ services:
     volumes:
       - ../../src:/app/src
       - ../../tests:/app/tests
-      - ../../htmlcov:/app/htmlcov
+      - ../../reports:/app/reports
     environment:
       - PYTHONUNBUFFERED=1
       - PYTHONPATH=/app
@@ -71,7 +69,7 @@ services:
       - TBSELENIUM_TBB_PATH=/opt/torbrowser/tor-browser
     profiles:
       - test
-    command: ["uv", "run", "pytest", "--cov=src", "--cov-report=html", "--cov-report=term-missing", "-v"]
+    command: ["uv", "run", "pytest", "--cov=src", "--cov-report=html:reports/coverage", "--cov-report=term-missing", "-v"]
 
   # 一回限りのデータ収集用
   tor-scraper-once:
@@ -80,8 +78,7 @@ services:
       dockerfile: docker/development/Dockerfile
     container_name: tor-selenium-once
     volumes:
-      - ../../data:/app/data
-      - ../../logs:/app/logs
+      - ../../reports:/app/reports
     environment:
       - PYTHONUNBUFFERED=1
       - PYTHONPATH=/app
