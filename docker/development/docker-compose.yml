@@ -10,13 +10,15 @@ services:
       - ../../tests:/app/tests:ro
       # データとログ出力用
       - ../../reports:/app/reports
+    env_file:
+      - ../../.env
     environment:
       - PYTHONUNBUFFERED=1
       - PYTHONPATH=/app
-      - TBB_PATH=/opt/torbrowser/tor-browser
+      - TBB_PATH=/opt/torbrowser
       - DISPLAY=:99
       # tbseleniumの設定
-      - TBSELENIUM_TBB_PATH=/opt/torbrowser/tor-browser
+      - TBSELENIUM_TBB_PATH=/opt/torbrowser
     restart: unless-stopped
     # リソース制限
     mem_limit: 2g
@@ -39,12 +41,14 @@ services:
       - ../../src:/app/src
       - ../../tests:/app/tests
       - ../../reports:/app/reports
+    env_file:
+      - ../../.env
     environment:
       - PYTHONUNBUFFERED=1
       - PYTHONPATH=/app
-      - TBB_PATH=/opt/torbrowser/tor-browser
+      - TBB_PATH=/opt/torbrowser
       - DISPLAY=:99
-      - TBSELENIUM_TBB_PATH=/opt/torbrowser/tor-browser
+      - TBSELENIUM_TBB_PATH=/opt/torbrowser
     profiles:
       - dev
     command: ["uv", "run", "src/main.py"]
@@ -61,12 +65,14 @@ services:
       - ../../src:/app/src
       - ../../tests:/app/tests
       - ../../reports:/app/reports
+    env_file:
+      - ../../.env
     environment:
       - PYTHONUNBUFFERED=1
       - PYTHONPATH=/app
-      - TBB_PATH=/opt/torbrowser/tor-browser
+      - TBB_PATH=/opt/torbrowser
       - DISPLAY=:99
-      - TBSELENIUM_TBB_PATH=/opt/torbrowser/tor-browser
+      - TBSELENIUM_TBB_PATH=/opt/torbrowser
     profiles:
       - test
     command: ["uv", "run", "pytest", "--cov=src", "--cov-report=html:reports/coverage", "--cov-report=term-missing", "-v"]
@@ -79,12 +85,14 @@ services:
     container_name: tor-selenium-once
     volumes:
       - ../../reports:/app/reports
+    env_file:
+      - ../../.env
     environment:
       - PYTHONUNBUFFERED=1
       - PYTHONPATH=/app
-      - TBB_PATH=/opt/torbrowser/tor-browser
+      - TBB_PATH=/opt/torbrowser
       - DISPLAY=:99
-      - TBSELENIUM_TBB_PATH=/opt/torbrowser/tor-browser
+      - TBSELENIUM_TBB_PATH=/opt/torbrowser
     profiles:
       - once
     command: ["uv", "run", "src/main.py"]

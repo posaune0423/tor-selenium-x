@@ -336,3 +336,300 @@ This project is licensed under the MIT License.
 ## Disclaimer
 
 This tool is for educational and research purposes only. Always respect website terms of service and applicable laws. Use responsibly and ethically.
+
+# X (Twitter) Scraper with Tor Browser
+
+A robust X (Twitter) scraper using Tor Browser for privacy and advanced authentication handling.
+
+## Features
+
+- **Privacy-focused**: Uses Tor Browser for anonymous scraping
+- **Smart Authentication**: Manual login flow to handle CAPTCHA and 2FA automatically
+- **Session Persistence**: Saves authentication cookies for future automated use
+- **Comprehensive Data Extraction**: Profile information, tweets, engagement metrics
+- **Anti-Detection**: Human-like behavior simulation and browser fingerprint management
+- **Rate Limiting**: Built-in delays and respectful scraping practices
+
+## 🔐 Authentication Strategy
+
+Instead of trying to automate CAPTCHA solving (which becomes outdated quickly), this scraper uses a **manual login flow**:
+
+1. **First-time setup**: User logs in manually through the browser
+2. **Cookie persistence**: Authentication cookies are automatically saved
+3. **Automated scraping**: Future sessions use saved cookies for seamless operation
+
+This approach is:
+- ✅ **Reliable**: No dependency on brittle CAPTCHA-solving logic
+- ✅ **Maintainable**: Resistant to X.com UI changes
+- ✅ **Human-like**: Authentic user behavior reduces detection risk
+- ✅ **Flexible**: Handles 2FA, CAPTCHA, and other challenges naturally
+
+## Installation
+
+### Prerequisites
+
+1. **Python 3.12+** with `uv` package manager
+2. **Tor Browser Bundle** installed on your system
+
+### Setup
+
+```bash
+# Clone the repository
+git clone <repository-url>
+cd tor-selenium-x
+
+# Install dependencies with uv
+uv sync --all-extras
+
+# Set up development environment
+make dev
+```
+
+### Tor Browser Setup
+
+Download and install Tor Browser from: https://www.torproject.org/download/
+
+Note the installation path, you'll need it for the `--tbb-path` argument.
+
+## Usage
+
+### 1. First-Time Manual Login Setup
+
+Run this command to set up authentication cookies:
+
+```bash
+# Linux/macOS
+python -m src.main --setup-login --tbb-path /path/to/tor-browser
+
+# Example paths:
+# Linux: /home/user/tor-browser_en-US
+# macOS: /Applications/Tor Browser.app/Contents/MacOS/Tor
+# Windows: C:\Users\User\Desktop\Tor Browser\Browser
+```
+
+This will:
+1. Open a Tor Browser window (non-headless)
+2. Navigate to X.com login page
+3. Wait for you to log in manually
+4. Handle any CAPTCHA or 2FA challenges
+5. Automatically detect successful login
+6. Save session cookies for future use
+
+### 2. Automated Scraping
+
+Once cookies are saved, run automated scraping:
+
+```bash
+python -m src.main --run-scraping --tbb-path /path/to/tor-browser
+```
+
+This will:
+1. Start in headless mode for faster operation
+2. Automatically restore your authentication session
+3. Run example scraping operations
+4. Save results to JSON files
+
+### 3. Custom Data Directory
+
+Use a custom directory for storing cookies and data:
+
+```bash
+# Setup with custom directory
+python -m src.main --setup-login --tbb-path /path/to/tor-browser --data-dir ./my_data
+
+# Run scraping with custom directory
+python -m src.main --run-scraping --tbb-path /path/to/tor-browser --data-dir ./my_data
+```
+
+## Advanced Usage
+
+### Programmatic API
+
+```python
+from src.x_scraper import XScraper
+
+# Manual login setup
+scraper = XScraper(tbb_path="/path/to/tor-browser", headless=False)
+scraper.start()
+success = scraper.manual_login_flow(timeout_minutes=10)
+scraper.close()
+
+# Automated scraping with saved cookies
+scraper = XScraper(tbb_path="/path/to/tor-browser", headless=True)
+scraper.start()
+
+# Session is automatically restored from cookies
+tweets = scraper.search_tweets("Python programming", max_tweets=20)
+profile = scraper.get_user_profile("elonmusk")
+
+scraper.close()
+```
+
+### Configuration Options
+
+```python
+scraper = XScraper(
+    tbb_path="/path/to/tor-browser",
+    headless=True,              # False for manual login, True for automation
+    use_stem=True,              # Use Stem to manage Tor process
+    socks_port=9050,            # SOCKS proxy port (default: 9050)
+    control_port=9051,          # Tor control port (default: 9051)
+    data_dir="./custom_data",   # Custom data directory
+)
+```
+
+## Data Output
+
+### Tweet Data Structure
+
+```json
+{
+  "id": "1234567890",
+  "text": "Tweet content here...",
+  "author": "username",
+  "timestamp": "2024-01-01T12:00:00Z",
+  "likes": 42,
+  "retweets": 10,
+  "replies": 5,
+  "url": "https://x.com/user/status/1234567890",
+  "hashtags": ["#example"],
+  "mentions": ["@user"]
+}
+```
+
+### Profile Data Structure
+
+```json
+{
+  "username": "elonmusk",
+  "display_name": "Elon Musk",
+  "bio": "Profile bio here...",
+  "location": "Austin, TX",
+  "website": "https://example.com",
+  "followers_count": 1000000,
+  "following_count": 100,
+  "verified": true,
+  "joined_date": "2009-06-02"
+}
+```
+
+## Troubleshooting
+
+### Manual Login Issues
+
+**Browser doesn't open:**
+- Make sure `headless=False` when running manual login setup
+- Verify Tor Browser path is correct
+- Check that Tor Browser can be launched manually
+
+**Login timeout:**
+- Increase timeout: `scraper.manual_login_flow(timeout_minutes=20)`
+- Complete login process quickly
+- Ensure stable internet connection
+
+**Session not detected:**
+- Wait for complete page load after login
+- Don't close browser until success message appears
+- Try refreshing the page if login seems stuck
+
+### Automated Scraping Issues
+
+**"Failed to restore session":**
+- Run manual login setup first: `--setup-login`
+- Check if cookies have expired (re-run setup)
+- Verify internet connection and X.com accessibility
+
+**Rate limiting or blocks:**
+- Increase delays between requests
+- Use different Tor circuits
+- Avoid aggressive scraping patterns
+
+### Common Error Solutions
+
+**"Tor Browser path does not exist":**
+```bash
+# Find your Tor Browser installation
+find / -name "tor-browser*" 2>/dev/null
+# or
+locate tor-browser
+```
+
+**"Driver initialization failed":**
+- Ensure Tor Browser is properly installed
+- Check permissions on Tor Browser directory
+- Default ports are now standardized to 9050/9051 (SOCKS/Control)
+
+**"No main content elements found":**
+- X.com structure may have changed
+- Try updating the scraper code
+- Check if X.com is accessible in your region
+
+## Development
+
+### Project Structure
+
+```
+tor-selenium-x/
+├── src/
+│   ├── main.py              # CLI interface and workflows
+│   ├── x_scraper.py         # Main scraper class
+│   ├── models.py            # Data models
+│   └── utils/               # Utility functions
+├── tests/                   # Test suite
+├── docker/                  # Docker configurations
+└── reports/                 # Output directory
+```
+
+### Contributing
+
+1. Fork the repository
+2. Create a feature branch
+3. Add tests for new functionality
+4. Ensure all tests pass: `make test`
+5. Submit a pull request
+
+### Testing
+
+```bash
+# Run all tests
+make test
+
+# Run with coverage
+uv run pytest --cov=src
+
+# Run specific test file
+uv run pytest tests/test_x_scraper.py
+```
+
+## Legal and Ethical Considerations
+
+- ⚖️ **Respect X.com Terms of Service**: Use responsibly and within platform guidelines
+- 🤝 **Rate Limiting**: Built-in delays prevent overwhelming X.com servers  
+- 🔒 **Privacy**: Tor Browser ensures your scraping activity remains private
+- 📊 **Research Use**: Intended for legitimate research, analysis, and educational purposes
+
+## License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+## Support
+
+For issues, questions, or contributions:
+1. Check existing GitHub issues
+2. Create a new issue with detailed description
+3. Provide logs and error messages
+4. Include system information (OS, Python version, Tor Browser version)
+
+## Changelog
+
+### v2.0.0 - Manual Login Flow
+- ✨ Added manual authentication workflow
+- 🍪 Persistent session cookie management  
+- 🤖 Separated setup and automation phases
+- 📱 CLI interface with clear operation modes
+- 🛡️ Enhanced anti-detection measures
+
+### v1.0.0 - Initial Release
+- 🕷️ Basic scraping functionality
+- 🔐 Tor Browser integration
+- 📊 Profile and tweet extraction

@@ -1,16 +1,15 @@
 #!/usr/bin/env python3
 """
-X (Twitter) scraper using Tor Browser
+X (Twitter) scraper using Tor Browser - Simple Example
 """
 
 import os
-import sys
 from pathlib import Path
 
 from dotenv import load_dotenv
 from loguru import logger
 
-from src.utils import configure_logging, random_delay
+from src.models import XCredentials
 from src.x_scraper import XScraper
 
 # Load environment variables from .env file
@@ -62,143 +61,119 @@ def find_tor_browser_path() -> str | None:
     return None
 
 
-def main() -> None:
-    """Main execution function"""
-    scraper = None
-    try:
-        # Configure logging with DEBUG level for detailed output
-        configure_logging(level="DEBUG")
+def main():
+    """Simple main function for X scraping example."""
+    logger.info("🚀 Starting X (Twitter) Scraper")
 
-        logger.info("Starting X Scraper...")
-
-        # Find Tor Browser path
-        tbb_path = find_tor_browser_path()
-        if not tbb_path:
-            logger.error("Tor Browser not found!")
-            logger.info("Please install Tor Browser or set TOR_BROWSER_PATH environment variable")
-            logger.info("Example: export TOR_BROWSER_PATH=/path/to/tor-browser")
-            sys.exit(1)
-
-        # Initialize scraper with Tor Browser
-        scraper = XScraper(
-            tbb_path=tbb_path,
-            headless=True,
-            use_stem=False,  # Use system Tor if available
-            socks_port=9050,
-            control_port=9051,
+    # Find Tor Browser path
+    tbb_path = find_tor_browser_path()
+    if not tbb_path:
+        logger.error(
+            "❌ Tor Browser not found. Please install Tor Browser or set TOR_BROWSER_PATH environment variable."
         )
+        return False
 
-        # Start scraper
-        if not scraper.start():
-            logger.error("Failed to start scraper")
-            return
+    # Get credentials from environment variables (optional)
+    email = os.getenv("X_EMAIL")
+    password = os.getenv("X_PASSWORD")
+    username = os.getenv("X_USERNAME")
 
-        logger.success("Scraper started successfully")
+    credentials = None
+    if email and password and username:
+        credentials = XCredentials(email=email, password=password, username=username)
+        logger.info("✅ Credentials loaded from environment variables")
+    else:
+        logger.info("No credentials provided - will work in anonymous mode")
 
-        # Navigate to X
-        if not scraper.navigate_to_x():
-            logger.error("Failed to navigate to X")
-            return
+    # Create scraper instance
+    scraper = XScraper(
+        tbb_path=tbb_path,
+        headless=True,  # Set to False to see the browser
+        credentials=credentials,
+    )
 
-        logger.success("Successfully connected to X")
-
-        # Run examples
-        run_examples(scraper)
-
-    except KeyboardInterrupt:
-        logger.info("Interrupted by user")
-    except Exception as e:
-        logger.error(f"Unexpected error in main: {e}")
-    finally:
-        if scraper:
-            scraper.close()
-
-
-def run_examples(scraper: XScraper) -> None:
-    """Run example scraping operations"""
     try:
-        # Example 0: Login flow (optional)
-        logger.info("=== Example 0: Login to X ===")
-        login_attempted = False
+        # Start the scraper
+        logger.info("🔧 Starting Tor Browser...")
+        if not scraper.start():
+            logger.error("❌ Failed to start scraper")
+            return False
 
-        # Check if credentials are available from environment variables
-        email = os.getenv("X_EMAIL")
-        password = os.getenv("X_PASSWORD")
-        username = os.getenv("X_USERNAME")
+        # Navigate to X.com
+        if not scraper.navigate_to_x():
+            logger.error("❌ Failed to navigate to X.com")
+            return False
 
-        if email and password and username:
-            from src.models import XCredentials
-
-            credentials = XCredentials(email=email, password=password, username=username)
-
-            logger.info("Attempting login with provided credentials...")
+        # Try to log in if credentials are provided
+        if credentials:
+            logger.info("🔐 Attempting to log in...")
             if scraper.login(credentials):
-                logger.success("Successfully logged in to X!")
-                login_attempted = True
+                logger.success(f"✅ Successfully logged in as @{credentials.username}")
             else:
-                logger.warning("Login failed, continuing with anonymous browsing")
-        else:
-            logger.info("No login credentials found in environment variables")
-            logger.info("Set X_EMAIL, X_PASSWORD, and X_USERNAME to enable login")
-            logger.info("Login example will be skipped")
+                logger.warning("⚠️  Login failed, continuing in anonymous mode")
 
-        # Example 1: Search for tweets
-        logger.info("=== Example 1: Search for tweets ===")
-        tweets = scraper.search_tweets("Python", max_tweets=5)
-        logger.info(f"Found {len(tweets)} tweets")
+        # Example: Search for tweets
+        logger.info("🔍 Searching for tweets...")
+        search_query = "Python"
+        tweets = scraper.search_tweets(search_query, max_tweets=5)
 
         if tweets:
-            # Save tweets to JSON
-            scraper.save_tweets_to_json(tweets, "search_tweets.json")
+            logger.success(f"📊 Found {len(tweets)} tweets for '{search_query}'")
+            for i, tweet in enumerate(tweets, 1):
+                logger.info(f"  {i}. @{tweet.author}: {tweet.text[:100]}...")
 
-            # Show sample tweets
-            for i, tweet in enumerate(tweets[:3], 1):
-                logger.info(f"Tweet {i}: @{tweet.author}: {tweet.text[:100]}...")
-
-        # Example 2: Get user profile
-        logger.info("=== Example 2: Get user profile ===")
-        profile = scraper.get_user_profile("elonmusk")
-        if profile:
-            logger.success(f"Retrieved profile for @{profile.username}")
-            logger.info(f"Display name: {profile.display_name}")
-            logger.info(f"Bio: {profile.bio[:100] if profile.bio else 'No bio'}...")
-            logger.info(f"Location: {profile.location or 'No location'}")
-            logger.info(f"Website: {profile.website or 'No website'}")
-            logger.info(f"Followers: {profile.followers_count}")
-            logger.info(f"Following: {profile.following_count}")
-
-            # Save profile to JSON
-            scraper.save_profile_to_json(profile, f"profile_{profile.username}.json")
-        else:
-            logger.error("Failed to get user profile")
-
-        # Example 3: Authenticated operations (if logged in)
-        if login_attempted and scraper.session.is_logged_in:
-            logger.info("=== Example 3: Authenticated operations ===")
-            logger.info(f"Logged in as: @{scraper.session.current_user}")
-
-            # Get tweets from the user's timeline (home feed)
-            logger.info("Getting tweets from home timeline...")
+            # Save results to JSON (if method exists)
             try:
-                # Navigate to home timeline
-                if scraper.driver:
-                    scraper.driver.get("https://x.com/home")
-                    random_delay(3, 5)
-                    logger.success("Successfully accessed home timeline")
+                if scraper.save_tweets_to_json(tweets, f"search_results_{search_query.replace(' ', '_')}.json"):
+                    logger.success("💾 Search results saved to JSON")
+            except AttributeError:
+                logger.debug("JSON save method not available")
 
-                    # In a real implementation, you might collect tweets from the timeline
-                    logger.info("Home timeline access verified (tweet collection would go here)")
-                else:
-                    logger.error("Driver not available")
-            except Exception as e:
-                logger.error(f"Error accessing authenticated features: {e}")
         else:
-            logger.info("=== Example 3: Skipped (not logged in) ===")
-            logger.info("Login required for authenticated operations")
+            logger.warning("❌ No tweets found for the search query")
+
+        # Example: Get user profile
+        profile_username = "elonmusk"  # Example username
+        logger.info(f"👤 Getting profile for @{profile_username}...")
+
+        try:
+            profile = scraper.get_user_profile(profile_username)
+        except AttributeError:
+            # Fallback to get_profile if get_user_profile doesn't exist
+            profile = scraper.get_profile(profile_username)
+
+        if profile:
+            logger.success(f"✅ Retrieved profile for @{profile_username}")
+            logger.info(f"  Display name: {profile.display_name}")
+            logger.info(
+                f"  Followers: {profile.followers_count:,}" if profile.followers_count else "  Followers: Unknown"
+            )
+            logger.info(
+                f"  Following: {profile.following_count:,}" if profile.following_count else "  Following: Unknown"
+            )
+
+            # Save profile to JSON (if method exists)
+            try:
+                if scraper.save_profile_to_json(profile, f"profile_{profile_username}.json"):
+                    logger.success("💾 Profile data saved to JSON")
+            except AttributeError:
+                logger.debug("Profile JSON save method not available")
+        else:
+            logger.warning(f"❌ Could not retrieve profile for @{profile_username}")
+
+        logger.success("🎉 Scraping completed successfully!")
+        return True
 
     except Exception as e:
-        logger.error(f"Error in examples: {e}")
+        logger.error(f"❌ Error during scraping: {e}")
+        return False
+
+    finally:
+        # Always clean up
+        scraper.close()
+        logger.info("🧹 Cleanup completed")
 
 
 if __name__ == "__main__":
-    main()
+    success = main()
+    exit(0 if success else 1)

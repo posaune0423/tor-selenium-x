@@ -36,9 +36,14 @@ ENV DISPLAY=:99
 # UVをインストール
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /bin/uv
 
-# tbselenium用の最小限のTor Browser構造を作成
+# tbselenium用の完全なTor Browser構造を作成
 RUN mkdir -p /opt/torbrowser/Browser/TorBrowser/Data/Browser/profile.default && \
-    ln -s /usr/bin/firefox-esr /opt/torbrowser/Browser/firefox
+    mkdir -p /opt/torbrowser/Browser/TorBrowser/Tor && \
+    mkdir -p /opt/torbrowser/Browser/TorBrowser/Data/Tor && \
+    ln -s /usr/bin/firefox-esr /opt/torbrowser/Browser/firefox && \
+    ln -s /usr/bin/tor /opt/torbrowser/Browser/TorBrowser/Tor/tor && \
+    echo '#!/bin/bash\nexec firefox-esr "$@"' > /opt/torbrowser/start-tor-browser && \
+    chmod +x /opt/torbrowser/start-tor-browser
 
 # 作業ディレクトリを設定
 WORKDIR /app

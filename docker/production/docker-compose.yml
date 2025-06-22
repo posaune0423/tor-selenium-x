@@ -22,6 +22,19 @@ services:
       - NODE_ENV=production
       - ENVIRONMENT=production
 
+      # X credentials (from environment variables - DO NOT USE .env in production)
+      - X_EMAIL=${X_EMAIL}
+      - X_PASSWORD=${X_PASSWORD}
+      - X_USERNAME=${X_USERNAME}
+
+      # Configuration
+      - TOR_BROWSER_PATH=${TOR_BROWSER_PATH:-/opt/torbrowser/tor-browser}
+      - DEBUG=${DEBUG:-false}
+
+    # 本番環境では.envファイルを使用しない - 環境変数を直接設定
+    # env_file:
+    #   - ../.env  # 本番環境では使用しない
+
     # Railway等のホスティングサービス用ポート設定
     ports:
       - "${PORT:-8000}:${PORT:-8000}"
