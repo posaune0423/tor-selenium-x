@@ -32,6 +32,9 @@ RUN GECKO_VERSION=$(curl -s https://api.github.com/repos/mozilla/geckodriver/rel
 
 # Xvfbディスプレイの設定
 ENV DISPLAY=:99
+ENV TOR_BROWSER_PATH=/opt/torbrowser
+ENV TBB_PATH=/opt/torbrowser
+ENV TBSELENIUM_TBB_PATH=/opt/torbrowser
 
 # UVをインストール
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /bin/uv

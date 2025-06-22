@@ -16,6 +16,7 @@ services:
       - PYTHONUNBUFFERED=1
       - PYTHONPATH=/app
       - TBB_PATH=/opt/torbrowser
+      - TOR_BROWSER_PATH=/opt/torbrowser
       - DISPLAY=:99
       # tbseleniumの設定
       - TBSELENIUM_TBB_PATH=/opt/torbrowser
@@ -47,6 +48,7 @@ services:
       - PYTHONUNBUFFERED=1
       - PYTHONPATH=/app
       - TBB_PATH=/opt/torbrowser
+      - TOR_BROWSER_PATH=/opt/torbrowser
       - DISPLAY=:99
       - TBSELENIUM_TBB_PATH=/opt/torbrowser
     profiles:
@@ -71,6 +73,7 @@ services:
       - PYTHONUNBUFFERED=1
       - PYTHONPATH=/app
       - TBB_PATH=/opt/torbrowser
+      - TOR_BROWSER_PATH=/opt/torbrowser
       - DISPLAY=:99
       - TBSELENIUM_TBB_PATH=/opt/torbrowser
     profiles:
@@ -91,6 +94,7 @@ services:
       - PYTHONUNBUFFERED=1
       - PYTHONPATH=/app
       - TBB_PATH=/opt/torbrowser
+      - TOR_BROWSER_PATH=/opt/torbrowser
       - DISPLAY=:99
       - TBSELENIUM_TBB_PATH=/opt/torbrowser
     profiles:
