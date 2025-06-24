@@ -1,18 +1,21 @@
-.PHONY: help build run dev test test-docker clean logs shell stop install format lint fix check build-prod run-prod dev-prod logs-prod shell-prod stop-prod clean-prod
+.PHONY: help build run dev dev-rebuild dev-background dev-logs test test-docker clean logs shell stop install format lint fix check build-prod run-prod dev-prod logs-prod shell-prod stop-prod clean-prod
 
 # デフォルトターゲット
 help:
 	@echo "Available commands:"
 	@echo ""
 	@echo "🐳 Docker Commands (Development):"
-	@echo "  build      - Docker イメージをビルド (開発環境)"
-	@echo "  run        - Tor Scraper を実行 (開発環境)"
-	@echo "  dev        - 開発モードで実行"
-	@echo "  test-docker- Docker環境でテストを実行"
-	@echo "  logs       - コンテナのログを表示 (開発環境)"
-	@echo "  shell      - コンテナ内でシェルを開く (開発環境)"
-	@echo "  stop       - 実行中のコンテナを停止 (開発環境)"
-	@echo "  clean      - Docker イメージとコンテナを削除 (開発環境)"
+	@echo "  build          - Docker イメージをビルド (開発環境)"
+	@echo "  run            - Tor Scraper を実行 (開発環境)"
+	@echo "  dev            - 開発モードで実行（2FA入力対応）"
+	@echo "  dev-rebuild    - 開発モードで実行（強制リビルド）"
+	@echo "  dev-background - 開発モードで実行（バックグラウンド）"
+	@echo "  dev-logs       - 開発モードで実行（ログ表示のみ）"
+	@echo "  test-docker    - Docker環境でテストを実行"
+	@echo "  logs           - コンテナのログを表示 (開発環境)"
+	@echo "  shell          - コンテナ内でシェルを開く (開発環境)"
+	@echo "  stop           - 実行中のコンテナを停止 (開発環境)"
+	@echo "  clean          - Docker イメージとコンテナを削除 (開発環境)"
 	@echo ""
 	@echo "🚀 Docker Commands (Production):"
 	@echo "  build-prod - Docker イメージをビルド (本番環境)"
@@ -29,6 +32,11 @@ help:
 	@echo "  lint       - リンターを実行 (Ruff)"
 	@echo "  fix        - 自動修正を実行 (Ruff)"
 	@echo "  check      - lint + test を実行"
+	@echo ""
+	@echo "💡 Usage Tips:"
+	@echo "  - 2FA入力が必要な場合は 'make dev' を使用"
+	@echo "  - バックグラウンド実行は 'make dev-background'"
+	@echo "  - ログ確認のみは 'make dev-logs'"
 
 # ====================
 # Development Environment
@@ -42,9 +50,21 @@ build:
 run:
 	docker-compose -f docker/development/docker-compose.yml up --build tor-scraper
 
-# 開発モードで実行
+# 開発モードで実行（インタラクティブ対応）
 dev:
-	docker-compose -f docker/development/docker-compose.yml --profile dev up --build tor-scraper-dev
+	docker-compose -f docker/development/docker-compose.yml --profile dev run --rm tor-scraper-dev
+
+# 開発モードで実行（強制リビルド）
+dev-rebuild:
+	docker-compose -f docker/development/docker-compose.yml --profile dev run --rm --build tor-scraper-dev
+
+# 開発モードで実行（バックグラウンド）
+dev-background:
+	docker-compose -f docker/development/docker-compose.yml --profile dev up -d tor-scraper-dev
+
+# 開発モードで実行（ログ表示、インタラクティブなし）
+dev-logs:
+	docker-compose -f docker/development/docker-compose.yml --profile dev up tor-scraper-dev
 
 # Docker環境でテストを実行
 test-docker:

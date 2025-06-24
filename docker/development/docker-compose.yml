@@ -20,6 +20,9 @@ services:
       - DISPLAY=:99
       # tbseleniumの設定
       - TBSELENIUM_TBB_PATH=/opt/torbrowser
+    # 標準入力対応（2FA用）
+    stdin_open: true
+    tty: true
     restart: unless-stopped
     # リソース制限
     mem_limit: 2g

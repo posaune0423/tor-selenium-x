@@ -3,6 +3,9 @@
 Selenium helper utilities for X scraper
 """
 
+from datetime import datetime
+from pathlib import Path
+
 from loguru import logger
 from selenium.common.exceptions import NoSuchElementException, TimeoutException
 from selenium.webdriver.remote.webdriver import WebDriver
@@ -235,3 +238,53 @@ def wait_for_element_clickable(driver: WebDriver, selector: str, timeout: int = 
     except Exception as e:
         logger.error(f"Error waiting for clickable element {selector}: {e}")
         return False
+
+
+def take_screenshot(
+    driver: WebDriver, filename: str | None = None, output_dir: str = "reports/screenshots"
+) -> str | None:
+    """
+    Take a screenshot of the current page
+
+    Args:
+        driver: WebDriver instance
+        filename: Filename to save (without extension). If None, uses timestamp
+        output_dir: Directory to save screenshots
+
+    Returns:
+        str | None: Path to saved screenshot file, None if failed
+    """
+    if not driver:
+        logger.error("Driver not initialized - cannot take screenshot")
+        return None
+
+    try:
+        # Create screenshot directory
+        screenshot_dir = Path(output_dir)
+        screenshot_dir.mkdir(parents=True, exist_ok=True)
+
+        # Generate filename if not provided
+        if filename is None:
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            filename = f"screenshot_{timestamp}"
+
+        # Add .png extension if not present
+        if not filename.endswith(".png"):
+            filename = f"{filename}.png"
+
+        # Full path
+        screenshot_path = screenshot_dir / filename
+
+        # Take screenshot
+        success = driver.save_screenshot(str(screenshot_path))
+
+        if success:
+            logger.info(f"✅ Screenshot saved: {screenshot_path}")
+            return str(screenshot_path)
+        else:
+            logger.error("❌ Failed to save screenshot")
+            return None
+
+    except Exception as e:
+        logger.error(f"Error taking screenshot: {e}")
+        return None

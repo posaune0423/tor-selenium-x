@@ -40,12 +40,17 @@ RUN mkdir -p /opt/torbrowser/Browser/TorBrowser/Data/Browser/profile.default && 
     mkdir -p /opt/torbrowser/Browser/TorBrowser/Data/Tor && \
     ln -s /usr/bin/firefox-esr /opt/torbrowser/Browser/firefox
 
-# Torの設定ファイルを作成
+# Torの設定ファイルを作成（セキュアな設定）
 RUN echo "SocksPort 9050" > /etc/tor/torrc && \
     echo "ControlPort 9051" >> /etc/tor/torrc && \
-    echo "CookieAuthentication 0" >> /etc/tor/torrc && \
-    echo "HashedControlPassword" >> /etc/tor/torrc && \
-    echo "RunAsDaemon 0" >> /etc/tor/torrc
+    echo "CookieAuthentication 1" >> /etc/tor/torrc && \
+    echo "CookieAuthFileGroupReadable 1" >> /etc/tor/torrc && \
+    echo "DataDirectory /var/lib/tor" >> /etc/tor/torrc && \
+    echo "RunAsDaemon 0" >> /etc/tor/torrc && \
+    echo "Log notice stdout" >> /etc/tor/torrc && \
+    echo "## Disable control password for cookie auth" >> /etc/tor/torrc && \
+    mkdir -p /var/lib/tor && \
+    chown -R debian-tor:debian-tor /var/lib/tor
 
 # Pythonプロジェクトファイルをコピー
 COPY pyproject.toml uv.lock ./

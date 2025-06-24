@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
 """
-X (Twitter) scraper using Tor Browser with tbselenium - Simplified version
+X (Twitter) scraper using Tor Browser with tbselenium - X scraping specific functionality
 """
 
 import json
-import os
 import time
 from datetime import datetime
 from pathlib import Path
@@ -18,12 +17,13 @@ from selenium.webdriver.remote.webelement import WebElement
 from tbselenium.tbdriver import TorBrowserDriver
 
 from src.models import Tweet, UserProfile
+from src.utils import create_tor_browser_driver, take_screenshot, verify_tor_connection
 
 TWITTER_LOGIN_URL = "https://twitter.com/i/flow/login"
 
 
 class XScraper:
-    """Simplified X (Twitter) scraper using Tor Browser"""
+    """X (Twitter) scraper using Tor Browser - focused on scraping functionality"""
 
     def __init__(
         self,
@@ -57,47 +57,20 @@ class XScraper:
         logger.info(f"XScraper initialized with TBB path: {tbb_path}")
 
     def start(self) -> bool:
-        """Start Tor Browser"""
+        """Start Tor Browser and verify Tor connection"""
         try:
-            # Check if we're running in Docker
-            is_docker = os.path.exists("/.dockerenv") or os.environ.get("DOCKER_ENV", "false").lower() == "true"
-
-            if is_docker:
-                logger.info("🐳 Running in Docker environment - using external Tor service")
-
-            # Simple tbselenium initialization - let it handle Tor connection
-            self.driver = TorBrowserDriver(
+            # Create Tor Browser driver using utils
+            self.driver = create_tor_browser_driver(
                 self.tbb_path,
                 headless=self.headless,
-                tbb_logfile_path="/dev/null",
             )
 
-            # Check if Tor is working - use a simpler test
-            try:
-                # First try to access a simple HTTP endpoint through Tor
-                self.driver.get("http://httpbin.org/ip")
-                time.sleep(5)
-
-                # If we can get a page, try the Tor check
-                if "origin" in self.driver.page_source:
-                    logger.info("✅ Basic Tor connectivity verified")
-
-                    # Now try the official Tor check
-                    self.driver.get("https://check.torproject.org/")
-                    time.sleep(5)
-
-                    if "Congratulations" in self.driver.page_source or "You are using Tor" in self.driver.page_source:
-                        logger.success("✅ Tor connection fully verified")
-                        return True
-                    else:
-                        logger.warning("⚠️  Tor check page failed, but basic connectivity works")
-                        return True  # Still proceed if basic connectivity works
-                else:
-                    logger.error("❌ No Tor connectivity detected")
-                    return False
-
-            except Exception as e:
-                logger.error(f"❌ Tor connection test failed: {e}")
+            # Verify Tor connection using utils
+            if verify_tor_connection(self.driver):
+                logger.success("✅ Tor Browser started successfully with verified Tor connection")
+                return True
+            else:
+                logger.error("❌ Tor connection verification failed")
                 return False
 
         except Exception as e:
@@ -281,26 +254,73 @@ class XScraper:
                     continue
 
             if tfa_field:
+                # Determine 2FA type by checking page content
+                page_source = self.driver.page_source.lower()
+                is_email_verification = any(
+                    keyword in page_source
+                    for keyword in [
+                        "メール",
+                        "email",
+                        "確認コード",
+                        "confirmation code",
+                        "@",
+                        "送信",
+                        "sent",
+                        "inbox",
+                        "受信",
+                    ]
+                )
+
                 logger.info("🔐 Two-factor authentication required")
-                print("\n" + "=" * 50)
+                print("\n" + "=" * 60)
                 print("🔐 TWO-FACTOR AUTHENTICATION REQUIRED")
-                print("=" * 50)
-                print("Please check your authenticator app or SMS for the verification code.")
+                print("=" * 60)
+
+                if is_email_verification:
+                    print("📧 メールでの確認コードが必要です")
+                    print("📧 Email verification code required")
+                    print("-" * 60)
+                    print("メールボックスを確認して、確認コードを入力してください。")
+                    print("Please check your email inbox for the confirmation code.")
+                    print("(通常、数分以内にメールが届きます / Usually arrives within a few minutes)")
+                else:
+                    print("📱 認証アプリまたはSMSでの確認コードが必要です")
+                    print("📱 Authenticator app or SMS verification code required")
+                    print("-" * 60)
+                    print("認証アプリまたはSMSを確認して、確認コードを入力してください。")
+                    print("Please check your authenticator app or SMS for the verification code.")
+
+                print("-" * 60)
 
                 # Get 2FA code from user input
-                tfa_code = input("Enter your 2FA code: ").strip()
+                tfa_code = input("確認コード / Verification code: ").strip()
 
                 if not tfa_code:
                     logger.error("No 2FA code provided")
                     return False
 
+                if not tfa_code.isdigit():
+                    logger.warning("Warning: Code should typically be numeric")
+
                 # Input 2FA code
                 tfa_field.clear()
-                tfa_field.send_keys(tfa_code)
+
+                # Add human-like typing delay for anti-detection
+                for char in tfa_code:
+                    tfa_field.send_keys(char)
+                    time.sleep(0.1)  # Small delay between keystrokes
+
                 tfa_field.send_keys(Keys.RETURN)
                 time.sleep(5)
 
                 logger.info("2FA code submitted")
+
+                # Verify if code was accepted
+                time.sleep(2)
+                if "login" not in self.driver.current_url.lower() and "flow" not in self.driver.current_url.lower():
+                    logger.success("✅ 2FA verification successful")
+                else:
+                    logger.warning("⚠️  2FA verification may have failed - please check")
 
             else:
                 logger.info("No 2FA required")
@@ -550,48 +570,19 @@ class XScraper:
 
     def take_screenshot(self, filename: str | None = None) -> str | None:
         """
-        現在表示されている画面のスクリーンショットを取得する
+        Take a screenshot of the current page using utils
 
         Args:
-            filename: 保存するファイル名(拡張子不要)。Noneの場合はタイムスタンプを使用
+            filename: Filename to save (without extension). If None, uses timestamp
 
         Returns:
-            str | None: 保存されたファイルパス(成功時)、None(失敗時)
+            str | None: Path to saved screenshot file, None if failed
         """
         if not self.driver:
             logger.error("Driver not initialized - cannot take screenshot")
             return None
 
-        try:
-            # スクリーンショット保存ディレクトリを作成
-            screenshot_dir = Path("reports/screenshots")
-            screenshot_dir.mkdir(parents=True, exist_ok=True)
-
-            # ファイル名生成(指定されない場合はタイムスタンプを使用)
-            if filename is None:
-                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                filename = f"screenshot_{timestamp}"
-
-            # .png拡張子を追加(まだ付いていない場合)
-            if not filename.endswith(".png"):
-                filename = f"{filename}.png"
-
-            # フルパス生成
-            screenshot_path = screenshot_dir / filename
-
-            # スクリーンショット取得
-            success = self.driver.save_screenshot(str(screenshot_path))
-
-            if success:
-                logger.info(f"✅ Screenshot saved: {screenshot_path}")
-                return str(screenshot_path)
-            else:
-                logger.error("❌ Failed to save screenshot")
-                return None
-
-        except Exception as e:
-            logger.error(f"Error taking screenshot: {e}")
-            return None
+        return take_screenshot(self.driver, filename)
 
     def close(self) -> None:
         """Close the browser"""

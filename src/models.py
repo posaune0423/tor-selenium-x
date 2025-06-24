@@ -22,7 +22,7 @@ class Tweet:
     id: str | None = None
     text: str = ""
     author: str = ""
-    timestamp: str | None = None
+    timestamp: str = ""
     likes: int = 0
     retweets: int = 0
     replies: int = 0
@@ -46,9 +46,9 @@ class UserProfile:
     bio: str = ""
     location: str = ""
     website: str | None = None
-    followers_count: int | None = None
-    following_count: int | None = None
-    tweets_count: int | None = None
+    followers_count: int = 0
+    following_count: int = 0
+    tweets_count: int = 0
     verified: bool = False
     profile_image_url: str | None = None
     banner_image_url: str | None = None

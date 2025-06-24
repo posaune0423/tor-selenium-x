@@ -31,6 +31,10 @@ services:
       - TOR_BROWSER_PATH=${TOR_BROWSER_PATH:-/opt/torbrowser/tor-browser}
       - DEBUG=${DEBUG:-false}
 
+    # 標準入力対応（2FA用） - 本番環境でも対応
+    stdin_open: true
+    tty: true
+
     # 本番環境では.envファイルを使用しない - 環境変数を直接設定
     # env_file:
     #   - ../.env  # 本番環境では使用しない
