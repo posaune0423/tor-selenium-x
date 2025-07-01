@@ -16,10 +16,17 @@ from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.remote.webelement import WebElement
 from tbselenium.tbdriver import TorBrowserDriver
 
+from src.constants import (
+    COOKIE_FILE_NAME,
+    LOGIN_PAGE_LOAD_TIMEOUT,
+    SCRAPING_RESULTS_DIR,
+    TWITTER_LOGIN_URL,
+    WAIT_MEDIUM,
+    WAIT_SHORT,
+)
 from src.models import Tweet, UserProfile
 from src.utils import create_tor_browser_driver, take_screenshot, verify_tor_connection
-
-TWITTER_LOGIN_URL = "https://twitter.com/i/flow/login"
+from src.utils.cookies import are_cookies_expired, load_cookies_from_file, save_cookies_to_file
 
 
 class XScraper:
@@ -50,11 +57,28 @@ class XScraper:
         self.password = password
         self.driver: TorBrowserDriver | None = None
 
-        # Create data directory for outputs
-        self.data_dir = Path("reports/data")
-        self.data_dir.mkdir(parents=True, exist_ok=True)
+        # Create data directory for outputs using constants
+        self.data_dir = SCRAPING_RESULTS_DIR
+        self._ensure_directory_exists(self.data_dir)
+
+        # Cookie file path using constants
+        self.cookie_file = self.data_dir / COOKIE_FILE_NAME
 
         logger.info(f"XScraper initialized with TBB path: {tbb_path}")
+
+    def _ensure_directory_exists(self, directory: Path) -> None:
+        """
+        Ensure directory exists, create if necessary
+
+        Args:
+            directory: Directory path to ensure exists
+        """
+        try:
+            directory.mkdir(parents=True, exist_ok=True)
+            logger.debug(f"Directory ensured: {directory.resolve()}")
+        except Exception as e:
+            logger.error(f"Failed to create directory {directory}: {e}")
+            raise
 
     def start(self) -> bool:
         """Start Tor Browser and verify Tor connection"""
@@ -79,7 +103,7 @@ class XScraper:
 
     def login(self) -> bool:
         """
-        Login to X (Twitter)
+        Login to X (Twitter) with cookie-based session persistence
 
         Returns:
             bool: True if login successful, False otherwise
@@ -88,6 +112,135 @@ class XScraper:
             logger.error("Driver not initialized")
             return False
 
+        # Try to login with saved cookies first
+        if self._try_cookie_login():
+            logger.success("✅ Logged in using saved cookies")
+            return True
+
+        # Fall back to manual login
+        return self._perform_manual_login()
+
+    def _try_cookie_login(self) -> bool:
+        """
+        Try to login using saved cookies
+
+        Returns:
+            bool: True if cookie login successful, False otherwise
+        """
+        if not self.driver:
+            logger.error("Driver not initialized")
+            return False
+
+        # Load cookies from file
+        cookies = load_cookies_from_file(str(self.cookie_file))
+        if not cookies:
+            logger.debug("No saved cookies found")
+            return False
+
+        # Check if cookies are expired
+        if are_cookies_expired(cookies):
+            logger.info("Saved cookies are expired, removing...")
+            self._remove_expired_cookies()
+            return False
+
+        return self._apply_cookies_to_session(cookies)
+
+    def _remove_expired_cookies(self) -> None:
+        """Remove expired cookie file"""
+        try:
+            self.cookie_file.unlink(missing_ok=True)
+        except Exception as e:
+            logger.warning(f"Failed to remove expired cookie file: {e}")
+
+    def _apply_cookies_to_session(self, cookies: list[dict[str, Any]]) -> bool:
+        """
+        Apply cookies to current browser session
+
+        Args:
+            cookies: List of cookie dictionaries to apply
+
+        Returns:
+            bool: True if cookies applied successfully
+        """
+        if not self.driver:
+            logger.error("Driver not initialized")
+            return False
+
+        try:
+            # Navigate to X homepage first
+            self.driver.get("https://twitter.com")
+            time.sleep(WAIT_SHORT)
+
+            # Add each cookie to the browser
+            for cookie in cookies:
+                try:
+                    # Clean cookie data for Selenium
+                    clean_cookie = {
+                        "name": cookie["name"],
+                        "value": cookie["value"],
+                        "domain": cookie.get("domain", ".twitter.com"),
+                        "path": cookie.get("path", "/"),
+                    }
+
+                    # Add secure and httpOnly if present
+                    if "secure" in cookie:
+                        clean_cookie["secure"] = cookie["secure"]
+                    if "httpOnly" in cookie:
+                        clean_cookie["httpOnly"] = cookie["httpOnly"]
+
+                    self.driver.add_cookie(clean_cookie)
+                except Exception as e:
+                    logger.debug(f"Failed to add cookie {cookie.get('name', 'unknown')}: {e}")
+                    continue
+
+            # Refresh the page to apply cookies
+            self.driver.refresh()
+            time.sleep(WAIT_MEDIUM)
+
+            # Check if login was successful
+            if self._verify_login():
+                logger.info("✅ Successfully logged in using saved cookies")
+                return True
+            else:
+                logger.debug("Cookie login verification failed")
+                return False
+
+        except Exception as e:
+            logger.error(f"Failed to apply cookies: {e}")
+            return False
+
+    def _perform_manual_login(self) -> bool:
+        """
+        Perform manual login flow
+
+        Returns:
+            bool: True if manual login successful
+        """
+        # Validate credentials
+        if not self._validate_credentials():
+            return False
+
+        logger.info("Logging in to X (Twitter) with credentials...")
+
+        try:
+            # Navigate to login page
+            if not self._navigate_to_login_page():
+                return False
+
+            # Execute login steps
+            return self._execute_login_steps()
+
+        except Exception as e:
+            logger.error(f"Login failed: {e}")
+            return False
+
+    def _validate_credentials(self) -> bool:
+        """
+        Validate that required credentials are provided
+
+        Returns:
+            bool: True if credentials are valid
+        """
         if not self.email and not self.username:
             logger.error("Email or username required for login")
             return False
@@ -96,39 +249,102 @@ class XScraper:
             logger.error("Password required for login")
             return False
 
-        logger.info("Logging in to X (Twitter)...")
+        return True
+
+    def _navigate_to_login_page(self) -> bool:
+        """
+        Navigate to X login page
+
+        Returns:
+            bool: True if navigation successful
+        """
+        if not self.driver:
+            logger.error("Driver not initialized")
+            return False
 
         try:
-            # Navigate to login page
+            logger.info(f"Navigating to login page: {TWITTER_LOGIN_URL}")
             self.driver.get(TWITTER_LOGIN_URL)
-            time.sleep(3)
+            time.sleep(LOGIN_PAGE_LOAD_TIMEOUT)
 
-            # Step 1: Input username/email
-            if not self._input_username():
-                return False
+            # Log page state after navigation
+            current_url = self.driver.current_url
+            page_title = self.driver.title
+            logger.info(f"After navigation - URL: {current_url}, Title: {page_title}")
 
-            # Step 2: Handle unusual activity verification (if appears)
-            self._input_unusual_activity()
+            # Take debug screenshot
+            self._take_debug_screenshot("initial_login_page")
+            self._log_page_elements_for_debugging("initial_login_page")
 
-            # Step 3: Input password
-            if not self._input_password():
-                return False
-
-            # Step 4: Handle 2FA if present
-            if not self._handle_2fa():
-                return False
-
-            # Verify login success
-            if self._verify_login():
-                logger.success("✅ Login successful")
-                return True
-            else:
-                logger.error("❌ Login verification failed")
-                return False
+            return True
 
         except Exception as e:
-            logger.error(f"Login failed: {e}")
+            logger.error(f"Failed to navigate to login page: {e}")
             return False
+
+    def _execute_login_steps(self) -> bool:
+        """
+        Execute the multi-step login process
+
+        Returns:
+            bool: True if all login steps completed successfully
+        """
+        # Step 1: Input username/email
+        if not self._input_username():
+            return False
+
+        # Step 2: Handle unusual activity verification (if appears)
+        self._input_unusual_activity()
+
+        # Step 3: Input password
+        if not self._input_password():
+            return False
+
+        # Step 4: Handle 2FA if present
+        if not self._handle_2fa():
+            return False
+
+        # Verify login success
+        if self._verify_login():
+            logger.success("✅ Login successful")
+            # Save cookies after successful login
+            self._save_session_cookies()
+            return True
+        else:
+            logger.error("❌ Login verification failed")
+            return False
+
+    def _save_session_cookies(self) -> None:
+        """Save current session cookies to file"""
+        if not self.driver:
+            logger.error("Driver not initialized")
+            return
+
+        try:
+            # Get all cookies from current session
+            cookies = self.driver.get_cookies()
+
+            # Filter out cookies that are likely important for login persistence
+            important_cookies = []
+            important_names = {"auth_token", "ct0", "twid", "personalization_id", "guest_id"}
+
+            for cookie in cookies:
+                # Keep all cookies for X/Twitter domain
+                if (
+                    ".twitter.com" in cookie.get("domain", "")
+                    or "x.com" in cookie.get("domain", "")
+                    or cookie.get("name") in important_names
+                ):
+                    important_cookies.append(cookie)
+
+            if important_cookies:
+                save_cookies_to_file(important_cookies, str(self.cookie_file))
+                logger.info(f"Saved {len(important_cookies)} session cookies")
+            else:
+                logger.warning("No important cookies found to save")
+
+        except Exception as e:
+            logger.error(f"Failed to save session cookies: {e}")
 
     def _input_username(self) -> bool:
         """Input username or email"""
@@ -144,23 +360,33 @@ class XScraper:
             return False
 
         while input_attempt < 3:
+            input_attempt += 1
+
+            # Log current page state for debugging
+            current_url = self.driver.current_url
+            page_title = self.driver.title
+            logger.info(f"Username attempt {input_attempt}/3: Current URL: {current_url}")
+            logger.info(f"Username attempt {input_attempt}/3: Page title: {page_title}")
+
             try:
                 username_field = self.driver.find_element(By.XPATH, "//input[@autocomplete='username']")
 
                 username_field.clear()
                 username_field.send_keys(login_identifier)
                 username_field.send_keys(Keys.RETURN)
-                time.sleep(3)
+                time.sleep(4)  # Increased wait time for page transition
 
                 logger.info("Username/email entered successfully")
                 return True
 
             except NoSuchElementException:
-                input_attempt += 1
                 logger.warning(f"Attempt {input_attempt}/3: Username field not found, retrying...")
-                time.sleep(2)
+                self._take_debug_screenshot(f"username_field_not_found_attempt_{input_attempt}")
+                if input_attempt < 3:
+                    time.sleep(2)
 
         logger.error("Failed to input username after 3 attempts")
+        self._take_debug_screenshot("username_input_final_failure")
         return False
 
     def _input_unusual_activity(self) -> None:
@@ -169,30 +395,58 @@ class XScraper:
             logger.error("Driver not initialized")
             return
 
-        input_attempt = 0
-
-        while input_attempt < 3:
+        try:
+            # First, look for unusual activity field
+            unusual_activity_field = None
             try:
                 unusual_activity_field = self.driver.find_element(
                     By.XPATH, "//input[@data-testid='ocfEnterTextTextInput']"
                 )
+                logger.info("Found unusual activity verification field")
 
                 # Use username for unusual activity verification
                 verification_text = self.username or self.email or ""
                 unusual_activity_field.clear()
                 unusual_activity_field.send_keys(verification_text)
-                unusual_activity_field.send_keys(Keys.RETURN)
-                time.sleep(3)
-
-                logger.info("Unusual activity verification completed")
-                break
+                logger.info("Entered verification text for unusual activity")
 
             except NoSuchElementException:
-                input_attempt += 1
-                if input_attempt >= 3:
-                    logger.info("No unusual activity verification required")
+                logger.info("No unusual activity verification field found")
+
+            # Always try to click the "Next" button to proceed
+            time.sleep(2)  # Wait for any dynamic loading
+
+            next_button_selectors = [
+                "//button[contains(text(), 'Next')]",
+                "//div[@role='button'][contains(text(), 'Next')]",
+                "//span[contains(text(), 'Next')]/ancestor::button",
+                "//button[@data-testid='LoginForm_Login_Button']",
+            ]
+
+            next_button_clicked = False
+            for selector in next_button_selectors:
+                try:
+                    next_button = self.driver.find_element(By.XPATH, selector)
+                    next_button.click()
+                    logger.info(f"Successfully clicked Next button using selector: {selector}")
+                    next_button_clicked = True
                     break
-                time.sleep(1)
+                except NoSuchElementException:
+                    continue
+
+            if not next_button_clicked:
+                logger.warning("Could not find Next button to proceed")
+                # Fallback: try pressing Enter on the unusual activity field if it exists
+                if unusual_activity_field:
+                    unusual_activity_field.send_keys(Keys.RETURN)
+                    logger.info("Used Enter key as fallback")
+
+            time.sleep(4)  # Wait for page transition
+
+        except Exception as e:
+            logger.warning(f"Error in unusual activity verification: {e}")
+
+        logger.info("Unusual activity verification step completed")
 
     def _input_password(self) -> bool:
         """Input password"""
@@ -204,26 +458,114 @@ class XScraper:
             logger.error("Password not provided")
             return False
 
+        # Multiple password field selectors to try
+        password_selectors = [
+            "//input[@autocomplete='current-password']",
+            "//input[@name='password']",
+            "//input[@type='password']",
+            "//input[@data-testid='ocfPasswordTextInput']",
+            "//input[contains(@placeholder, 'Password')]",
+            "//input[contains(@placeholder, 'password')]",
+            "//input[contains(@placeholder, 'パスワード')]",
+        ]
+
         input_attempt = 0
 
         while input_attempt < 3:
-            try:
-                password_field = self.driver.find_element(By.XPATH, "//input[@autocomplete='current-password']")
+            input_attempt += 1
 
-                password_field.clear()
-                password_field.send_keys(self.password)
-                password_field.send_keys(Keys.RETURN)
-                time.sleep(3)
+            # Log current page state for debugging
+            current_url = self.driver.current_url
+            page_title = self.driver.title
+            logger.info(f"Attempt {input_attempt}/3: Current URL: {current_url}")
+            logger.info(f"Attempt {input_attempt}/3: Page title: {page_title}")
 
-                logger.info("Password entered successfully")
-                return True
+            password_field = None
+            used_selector = None
 
-            except NoSuchElementException:
-                input_attempt += 1
-                logger.warning(f"Attempt {input_attempt}/3: Password field not found, retrying...")
-                time.sleep(2)
+            # Try each password selector
+            for selector in password_selectors:
+                try:
+                    password_field = self.driver.find_element(By.XPATH, selector)
+                    used_selector = selector
+                    logger.debug(f"Found password field with selector: {selector}")
+                    break
+                except NoSuchElementException:
+                    continue
+
+            if password_field:
+                try:
+                    # Clear and input password
+                    password_field.clear()
+                    time.sleep(0.5)
+
+                    # Human-like typing
+                    for char in self.password:
+                        password_field.send_keys(char)
+                        time.sleep(0.1)
+
+                    # Try to click the Login button instead of pressing Enter
+                    login_button_selectors = [
+                        "//button[contains(text(), 'Log in')]",
+                        "//button[@data-testid='LoginForm_Login_Button']",
+                        "//div[@role='button'][contains(text(), 'Log in')]",
+                        "//span[contains(text(), 'Log in')]/ancestor::button",
+                    ]
+
+                    login_button_clicked = False
+                    for selector in login_button_selectors:
+                        try:
+                            login_button = self.driver.find_element(By.XPATH, selector)
+                            login_button.click()
+                            logger.info(f"Successfully clicked Login button using selector: {selector}")
+                            login_button_clicked = True
+                            break
+                        except NoSuchElementException:
+                            continue
+
+                    if not login_button_clicked:
+                        # Fallback to pressing Enter
+                        password_field.send_keys(Keys.RETURN)
+                        logger.info("Used Enter key as fallback for login")
+
+                    time.sleep(5)  # Increased wait time for login processing
+
+                    logger.info(f"Password entered successfully using selector: {used_selector}")
+
+                    # Add debug information after password input
+                    current_url_after_password = self.driver.current_url
+                    page_title_after_password = self.driver.title
+                    logger.info(f"After password input - URL: {current_url_after_password}")
+                    logger.info(f"After password input - Title: {page_title_after_password}")
+
+                    # Take debug screenshot after password input
+                    self._take_debug_screenshot("after_password_input")
+
+                    # Log page elements to see what's available
+                    self._log_page_elements_for_debugging("after_password_input")
+
+                    return True
+
+                except Exception as e:
+                    logger.warning(f"Error entering password: {e}")
+                    # Take screenshot on error
+                    self._take_debug_screenshot(f"password_input_error_attempt_{input_attempt}")
+            else:
+                logger.warning(f"Attempt {input_attempt}/3: No password field found with any selector")
+
+                # Log page content for debugging
+                self._log_page_elements_for_debugging(f"password_field_not_found_attempt_{input_attempt}")
+
+                # Take screenshot for debugging
+                self._take_debug_screenshot(f"password_field_not_found_attempt_{input_attempt}")
+
+                # Wait before retrying
+                if input_attempt < 3:
+                    time.sleep(2)
 
         logger.error("Failed to input password after 3 attempts")
+        self._log_page_elements_for_debugging("password_input_final_failure")
+        self._take_debug_screenshot("password_input_final_failure")
         return False
 
     def _handle_2fa(self) -> bool:
@@ -241,8 +583,8 @@ class XScraper:
                 "//input[@data-testid='ocfEnterTextTextInput']",
                 "//input[@autocomplete='one-time-code']",
                 "//input[@name='text']",
-                "//input[@placeholder*='code']",
-                "//input[@placeholder*='Code']",
+                "//input[contains(@placeholder, 'code')]",
+                "//input[contains(@placeholder, 'Code')]",
             ]
 
             tfa_field = None
@@ -547,25 +889,35 @@ class XScraper:
     def save_tweets_to_json(self, tweets: list[Tweet], filename: str) -> bool:
         """Save tweets to JSON file"""
         try:
+            # Ensure data directory exists
+            self.data_dir.mkdir(parents=True, exist_ok=True)
+
             output_path = self.data_dir / f"{filename}.json"
             with open(output_path, "w", encoding="utf-8") as f:
                 json.dump([tweet.__dict__ for tweet in tweets], f, ensure_ascii=False, indent=2)
             logger.info(f"Saved {len(tweets)} tweets to {output_path}")
             return True
         except Exception as e:
-            logger.error(f"Failed to save tweets: {e}")
+            logger.error(f"Failed to save tweets to {self.data_dir}: {e}")
+            logger.debug(f"Current working directory: {Path.cwd()}")
+            logger.debug(f"Absolute data directory path: {self.data_dir.resolve()}")
             return False
 
     def save_profile_to_json(self, profile: UserProfile, filename: str) -> bool:
         """Save profile to JSON file"""
         try:
+            # Ensure data directory exists
+            self.data_dir.mkdir(parents=True, exist_ok=True)
+
             output_path = self.data_dir / f"{filename}.json"
             with open(output_path, "w", encoding="utf-8") as f:
                 json.dump(profile.__dict__, f, ensure_ascii=False, indent=2)
             logger.info(f"Saved profile to {output_path}")
             return True
         except Exception as e:
-            logger.error(f"Failed to save profile: {e}")
+            logger.error(f"Failed to save profile to {self.data_dir}: {e}")
+            logger.debug(f"Current working directory: {Path.cwd()}")
+            logger.debug(f"Absolute data directory path: {self.data_dir.resolve()}")
             return False
 
     def take_screenshot(self, filename: str | None = None) -> str | None:
@@ -584,6 +936,130 @@ class XScraper:
 
         return take_screenshot(self.driver, filename)
 
+    def _take_debug_screenshot(self, description: str) -> None:
+        """
+        Take debug screenshot with additional context for troubleshooting
+
+        Args:
+            description: Description of the error or state
+        """
+        if not self.driver:
+            logger.warning("Driver not initialized - cannot take debug screenshot")
+            return
+
+        try:
+            timestamp = time.strftime("%Y%m%d_%H%M%S")
+            folder_name = f"{timestamp}_{description}"
+
+            # Create debug screenshots directory
+            debug_dir = Path("data/screenshots") / folder_name
+            debug_dir.mkdir(parents=True, exist_ok=True)
+
+            # Take screenshot
+            screenshot_path = debug_dir / "screenshot.png"
+            if self.driver.save_screenshot(str(screenshot_path)):
+                logger.info(f"Debug screenshot saved: {screenshot_path}")
+
+            # Save HTML source
+            html_path = debug_dir / "page_source.html"
+            with open(html_path, "w", encoding="utf-8") as f:
+                f.write(self.driver.page_source)
+
+            # Save metadata
+            metadata_path = debug_dir / "metadata.txt"
+            with open(metadata_path, "w", encoding="utf-8") as f:
+                f.write("Debug Screenshot Metadata\n")
+                f.write("=========================\n")
+                f.write(f"Timestamp: {timestamp}\n")
+                f.write(f"Description: {description}\n")
+                f.write(f"Current URL: {self.driver.current_url}\n")
+                f.write(f"Page Title: {self.driver.title}\n")
+                f.write(f"Window Size: {self.driver.get_window_size()}\n")
+                f.write(f"Screenshot: {screenshot_path}\n")
+                f.write(f"HTML Source: {html_path}\n")
+
+            logger.info(f"Debug data saved in folder: {debug_dir}")
+
+        except Exception as e:
+            logger.error(f"Failed to take debug screenshot: {e}")
+
+    def _log_page_elements_for_debugging(self, context: str) -> None:
+        """
+        Log current page elements for debugging purposes
+
+        Args:
+            context: Context description for the debug log
+        """
+        if not self.driver:
+            logger.warning("Driver not initialized - cannot log page elements")
+            return
+
+        try:
+            logger.info(f"=== PAGE ELEMENTS DEBUG ({context}) ===")
+
+            # Log all input fields
+            input_fields = self.driver.find_elements(By.TAG_NAME, "input")
+            logger.info(f"Found {len(input_fields)} input fields:")
+
+            for i, field in enumerate(input_fields[:10]):  # Limit to first 10
+                try:
+                    field_type = field.get_attribute("type") or "text"
+                    field_name = field.get_attribute("name") or "no-name"
+                    field_id = field.get_attribute("id") or "no-id"
+                    field_placeholder = field.get_attribute("placeholder") or "no-placeholder"
+                    field_autocomplete = field.get_attribute("autocomplete") or "no-autocomplete"
+                    field_data_testid = field.get_attribute("data-testid") or "no-testid"
+
+                    logger.info(
+                        f"  Input {i + 1}: type='{field_type}', name='{field_name}', "
+                        f"id='{field_id}', placeholder='{field_placeholder}', "
+                        f"autocomplete='{field_autocomplete}', data-testid='{field_data_testid}'"
+                    )
+                except Exception as e:
+                    logger.warning(f"  Input {i + 1}: Error reading attributes - {e}")
+
+            # Log specific password-related elements
+            try:
+                password_elements = self.driver.find_elements(By.XPATH, "//input[@type='password']")
+                logger.info(f"Found {len(password_elements)} password type input fields")
+
+                autocomplete_password = self.driver.find_elements(By.XPATH, "//input[@autocomplete='current-password']")
+                logger.info(f"Found {len(autocomplete_password)} autocomplete='current-password' fields")
+
+                testid_password = self.driver.find_elements(By.XPATH, "//input[@data-testid='ocfPasswordTextInput']")
+                logger.info(f"Found {len(testid_password)} data-testid='ocfPasswordTextInput' fields")
+
+            except Exception as e:
+                logger.warning(f"Error searching for password elements: {e}")
+
+            # Log current form elements
+            try:
+                forms = self.driver.find_elements(By.TAG_NAME, "form")
+                logger.info(f"Found {len(forms)} form elements")
+
+                buttons = self.driver.find_elements(By.TAG_NAME, "button")
+                logger.info(f"Found {len(buttons)} button elements")
+
+                # Log button text for context
+                for i, button in enumerate(buttons[:5]):  # First 5 buttons
+                    try:
+                        button_text = button.text or button.get_attribute("aria-label") or "no-text"
+                        button_type = button.get_attribute("type") or "button"
+                        logger.info(f"  Button {i + 1}: text='{button_text}', type='{button_type}'")
+                    except Exception as e:
+                        logger.warning(f"  Button {i + 1}: Error reading - {e}")
+
+            except Exception as e:
+                logger.warning(f"Error analyzing form elements: {e}")
+
+            # Log page title and URL again for reference
+            logger.info(f"Current URL: {self.driver.current_url}")
+            logger.info(f"Page title: {self.driver.title}")
+            logger.info("=== END PAGE ELEMENTS DEBUG ===")
+
+        except Exception as e:
+            logger.error(f"Failed to log page elements for debugging: {e}")
+
     def close(self) -> None:
         """Close the browser"""
         if self.driver:
@@ -598,3 +1074,83 @@ class XScraper:
 
     def __exit__(self, exc_type: type[BaseException] | None, exc_val: BaseException | None, exc_tb: Any) -> None:
         self.close()
+
+    def clear_saved_cookies(self) -> bool:
+        """
+        Clear saved cookies file
+
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        try:
+            if self.cookie_file.exists():
+                self.cookie_file.unlink()
+                logger.info("Saved cookies cleared successfully")
+                return True
+            else:
+                logger.info("No saved cookies to clear")
+                return True
+        except Exception as e:
+            logger.error(f"Failed to clear saved cookies: {e}")
+            return False
+
+    def logout(self) -> bool:
+        """
+        Logout from X (Twitter) and clear saved cookies
+
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        if not self.driver:
+            logger.error("Driver not initialized")
+            return False
+
+        try:
+            # Try to navigate to logout URL
+            self.driver.get("https://twitter.com/logout")
+            time.sleep(2)
+
+            # Look for logout confirmation button
+            try:
+                logout_button = self.driver.find_element(By.XPATH, "//div[@data-testid='confirmationSheetConfirm']")
+                logout_button.click()
+                time.sleep(3)
+                logger.info("Logged out successfully")
+            except NoSuchElementException:
+                logger.info("Already logged out or logout button not found")
+
+            # Clear cookies from browser session
+            self.driver.delete_all_cookies()
+
+            # Clear saved cookies file
+            self.clear_saved_cookies()
+
+            logger.success("✅ Logout completed and cookies cleared")
+            return True
+
+        except Exception as e:
+            logger.error(f"Logout failed: {e}")
+            return False
+
+    def is_logged_in(self) -> bool:
+        """
+        Check if currently logged in to X (Twitter)
+
+        Returns:
+            bool: True if logged in, False otherwise
+        """
+        if not self.driver:
+            logger.error("Driver not initialized")
+            return False
+
+        try:
+            # Navigate to home page
+            self.driver.get("https://twitter.com/home")
+            time.sleep(3)
+
+            # Check for login indicators
+            return self._verify_login()
+
+        except Exception as e:
+            logger.error(f"Error checking login status: {e}")
+            return False

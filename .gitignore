@@ -1,6 +1,5 @@
 # Generated reports and data
-reports/
-logs/
+data/
 
 # Python-generated files
 __pycache__/

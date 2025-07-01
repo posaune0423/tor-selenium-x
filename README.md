@@ -311,7 +311,7 @@ tor-selenium-x/
 │       ├── anti_detection.py
 │       └── logger.py
 ├── tests/              # Test files
-├── reports/            # Generated reports and data
+├── data/               # Generated data and reports
 │   ├── logs/           # Log files (timestamp-based)
 │   ├── coverage/       # Test coverage reports
 │   └── data/           # Scraped data files
@@ -577,7 +577,7 @@ tor-selenium-x/
 │   └── utils/               # Utility functions
 ├── tests/                   # Test suite
 ├── docker/                  # Docker configurations
-└── reports/                 # Output directory
+└── data/                    # Output directory
 ```
 
 ### Contributing

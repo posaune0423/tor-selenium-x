@@ -1,220 +1,229 @@
-# Docker環境でのTor Selenium X Scraper
+# Docker 環境での Tor-Selenium-X
 
-このディレクトリには、Tor Selenium X Scraperをコンテナ環境で実行するためのDocker設定が含まれています。
+## 概要
 
-## 🚀 新機能
+このプロジェクトは、Tor Browser と Selenium を使用したプライベートな X (Twitter) スクレイピングツールです。Docker を使用して、一貫性のある実行環境を提供します。
 
-- **tbselenium統合**: 安定性と保守性を向上させるためtbseleniumライブラリを使用
-- **Tor Browser Bundle**: 実際のTor Browserを使用してより信頼性の高いスクレイピング
-- **自動Tor管理**: tbseleniumが内部でTorプロセスを管理
-- **ヘッドレス実行**: Xvfbを使用したGUIなし実行
+## Docker 環境の種類
 
-## 📋 前提条件
+### 開発環境 (Development)
+- **用途**: 開発・デバッグ・テスト
+- **特徴**: ソースコードをボリュームマウント、インタラクティブ対応
+- **場所**: `docker/development/`
 
-- Docker 20.10+
-- Docker Compose 2.0+
-- 最低2GB RAM（推奨4GB）
+### 本番環境 (Production)  
+- **用途**: 実際のデータ収集・運用
+- **特徴**: 最適化されたイメージ、セキュリティ強化
+- **場所**: `docker/production/`
 
-## 🏗️ ビルドと実行
+## 🔧 使用方法
 
-### 基本的な実行
+### 基本的な実行方法
 
 ```bash
-# イメージをビルドして実行
-docker-compose up --build
+# 開発モードで実行（2FA入力対応）
+make dev
 
 # バックグラウンドで実行
-docker-compose up -d --build
+make dev-background
+
+# テストを実行
+make test-docker
+
+# 権限テストを実行
+make test-permissions
 ```
 
-### 開発環境での実行
+> **注意**: ファイル権限とディレクトリ作成は自動で処理されます。
 
-```bash
-# 開発用プロファイル（インタラクティブ）
-docker-compose --profile dev up tor-scraper-dev
+## 📁 ファイル保存について
 
-# または直接実行
-docker-compose run --rm tor-scraper-dev
+### 自動解決される権限問題
+
+以前のバージョンで発生していた以下のエラーは自動で解決されます：
+
+```
+Failed to save tweets: [Errno 2] No such file or directory: 'data/scraping_results/search_results_Python_programming.json'
 ```
 
-### テスト実行
+**解決方法**:
+1. **XScraperでの自動ディレクトリ作成**: 保存メソッド内で`self.data_dir.mkdir(parents=True, exist_ok=True)`を実行
+2. **Makefileでの事前ディレクトリ作成**: Docker実行前に`mkdir -p data/scraping_results`を実行
+3. **Docker権限の自動設定**: 実行時に`USER_ID`と`GROUP_ID`を自動設定
 
-```bash
-# テストスイート実行
-docker-compose --profile test up tor-scraper-test
+### ディレクトリ構造
 
-# カバレッジレポート生成
-docker-compose --profile test run --rm tor-scraper-test
+```
+tor-selenium-x/
+├── data/                       # データ出力ディレクトリ（自動作成）
+│   ├── data/                   # JSON ファイル保存先
+│   ├── logs/                   # ログファイル
+│   ├── screenshots/            # スクリーンショット
+│   └── coverage/               # テストカバレッジ
 ```
 
-### 一回限りのデータ収集
+## 🐳 Docker コマンド一覧
 
-```bash
-# 一回だけスクレイピング実行
-docker-compose --profile once up tor-scraper-once
-```
+### 開発環境
 
-## 📁 ボリュームマウント
+| コマンド | 説明 |
+|---------|------|
+| `make build` | Docker イメージをビルド |
+| `make dev` | 開発モードで実行（2FA入力対応） |
+| `make dev-rebuild` | 強制リビルドして実行 |
+| `make dev-background` | バックグラウンドで実行 |
+| `make test-docker` | Docker環境でテストを実行 |
+| `make test-permissions` | 権限テストを実行 |
+| `make logs` | コンテナのログを表示 |
+| `make shell` | コンテナ内でシェルを開く |
+| `make stop` | 実行中のコンテナを停止 |
+| `make clean` | イメージとコンテナを削除 |
 
-| ホストパス | コンテナパス | 説明 |
-|-----------|------------|-----|
-| `../data` | `/app/data` | スクレイピングデータの保存先 |
-| `../logs` | `/app/logs` | ログファイルの出力先 |
-| `../src` | `/app/src` | ソースコード（開発時） |
-| `../tests` | `/app/tests` | テストファイル |
-| `../htmlcov` | `/app/htmlcov` | カバレッジレポート |
+### 本番環境
 
-## 🔧 環境変数
-
-| 変数名 | デフォルト値 | 説明 |
-|-------|------------|-----|
-| `TBB_PATH` | `/opt/torbrowser/tor-browser` | Tor Browser Bundleのパス |
-| `DISPLAY` | `:99` | Xvfbディスプレイ番号 |
-| `PYTHONUNBUFFERED` | `1` | Pythonバッファリング無効化 |
-| `PYTHONPATH` | `/app` | Pythonモジュール検索パス |
-| `TBSELENIUM_TBB_PATH` | `/opt/torbrowser/tor-browser` | tbselenium用TBBパス |
-
-## 🎯 使用例
-
-### 1. 開発用途
-
-```bash
-# コンテナに入ってインタラクティブに開発
-docker-compose run --rm tor-scraper-dev bash
-
-# 特定のスクリプトを実行
-docker-compose run --rm tor-scraper-dev uv run src/main.py
-```
-
-### 2. 自動化スクリプト
-
-```bash
-# crontabで定期実行する場合
-0 */6 * * * cd /path/to/project && docker-compose --profile once up tor-scraper-once
-```
-
-### 3. CI/CD統合
-
-```bash
-# GitHub Actionsなどで使用
-docker-compose --profile test run --rm tor-scraper-test
-```
+| コマンド | 説明 |
+|---------|------|
+| `make build-prod` | 本番用イメージをビルド |
+| `make run-prod` | 本番環境で実行 |
+| `make logs-prod` | 本番環境のログを表示 |
+| `make shell-prod` | 本番環境でシェルを開く |
 
 ## 🔍 トラブルシューティング
 
-### よくある問題
+### 1. ファイル保存エラー（稀なケース）
 
-#### 1. Tor Browser Bundle のダウンロードに失敗
+**エラー**: `Failed to save tweets: [Errno 2] No such file or directory`
+
+**解決手順**:
+```bash
+# 1. 権限テストを実行
+make test-permissions
+
+# 2. 再ビルドして実行
+make dev-rebuild
+```
+
+### 2. 2FA 入力の問題
+
+**問題**: Two-Factor Authentication (2FA) の入力ができない
+
+**解決策**: 
+```bash
+# インタラクティブモードで実行
+make dev
+```
+
+### 3. Tor 接続の問題
+
+**問題**: Tor接続が確立できない
+
+**解決策**:
+```bash
+# コンテナ内でTor状態を確認
+make shell
+curl --socks5 localhost:9050 http://httpbin.org/ip
+```
+
+## 🧪 テスト
+
+### 権限テスト
+
+Docker環境での**ファイル保存と権限**をテストする専用テストが用意されています：
 
 ```bash
-# 手動でTBBを配置する場合
-mkdir -p /opt/torbrowser
-# TBBを/opt/torbrowser/tor-browserに配置
+# 権限テストを実行
+make test-permissions
+
+# 個別のテストを実行（ローカル環境）
+pytest tests/test_docker_file_permissions.py -v
 ```
 
-#### 2. メモリ不足
+**テスト内容**:
+- ディレクトリ作成権限
+- ファイル書き込み権限  
+- ボリュームマウントの動作
+- ユーザー権限の確認
+- XScraper のファイル保存機能
 
-```yaml
-# docker-compose.ymlでメモリ制限を調整
-mem_limit: 4g  # 2gから4gに増加
-```
+## 📋 環境変数
 
-#### 3. 権限エラー
+### 必須の環境変数
 
 ```bash
-# ログとデータディレクトリの権限確認
-sudo chown -R 1000:1000 data/ logs/
+# Tor Browser パス（Docker内では自動設定）
+export TOR_BROWSER_PATH=/opt/torbrowser
+
+# X (Twitter) ログイン情報（オプション）
+export X_EMAIL=your_email@example.com
+export X_USERNAME=your_username  
+export X_PASSWORD=your_password
 ```
 
-#### 4. tbseleniumエラー
+### Docker 内部環境変数（自動設定）
 
 ```bash
-# コンテナ内でTBBパスを確認
-docker-compose run --rm tor-scraper-dev ls -la $TBB_PATH
+# Python 関連
+PYTHONUNBUFFERED=1
+PYTHONPATH=/app
+
+# Tor Browser 関連
+TBB_PATH=/opt/torbrowser
+TBSELENIUM_TBB_PATH=/opt/torbrowser
+
+# ディスプレイ設定
+DISPLAY=:99
+
+# 権限設定（自動）
+USER_ID=<host user id>
+GROUP_ID=<host group id>
 ```
 
-### ログの確認
+## 🔒 セキュリティ
 
-```bash
-# リアルタイムログ
-docker-compose logs -f tor-scraper
+### データ保護
 
-# 特定サービスのログ
-docker-compose logs tor-scraper-dev
+- **Tor ネットワーク**: すべての通信が Tor 経由で匿名化
+- **コンテナ分離**: アプリケーションがホストから分離
+- **権限最小化**: 非root ユーザーでアプリケーションを実行
 
-# ログファイル確認
-ls -la logs/
+### 注意事項
+
+- `.env` ファイルには機密情報を含むため、バージョン管理に含めない
+- X (Twitter) の利用規約を遵守してください
+- レート制限を守り、適切な間隔でリクエストを送信してください
+
+## 📚 参考情報
+
+### 関連ファイル
+
+- `docker/development/Dockerfile` - 開発環境 Docker 設定
+- `docker/development/docker-compose.yml` - 開発環境 Compose 設定
+- `docker/development/docker-entrypoint.sh` - コンテナ起動スクリプト
+- `tests/test_docker_file_permissions.py` - 権限テストファイル
+
+### プロジェクト構造
+
+```
+docker/
+├── development/                # 開発環境
+│   ├── Dockerfile
+│   ├── docker-compose.yml
+│   └── docker-entrypoint.sh
+├── production/                 # 本番環境
+│   ├── Dockerfile
+│   ├── docker-compose.yml
+│   └── docker-entrypoint.sh
+└── README.md                   # このファイル
 ```
 
-### ヘルスチェック
+---
 
-```bash
-# サービス状態確認
-docker-compose ps
+## 🆘 サポート
 
-# ヘルスチェック詳細
-docker inspect tor-selenium-scraper | jq '.[0].State.Health'
-```
+問題が発生した場合は、以下の順序で確認してください：
 
-## 🚨 セキュリティ注意事項
-
-1. **非rootユーザー**: コンテナは`appuser`（UID: 1000）で実行
-2. **読み取り専用マウント**: 本番環境ではソースコードを`:ro`でマウント
-3. **ネットワーク分離**: 必要に応じてDockerネットワークを分離
-4. **シークレット管理**: API キーなどは環境変数やDocker secretsを使用
-
-## 📊 モニタリング
-
-### リソース使用量確認
-
-```bash
-# コンテナのリソース使用量
-docker stats tor-selenium-scraper
-
-# システムリソース確認
-docker system df
-```
-
-### パフォーマンス調整
-
-```yaml
-# docker-compose.ymlでの調整例
-deploy:
-  resources:
-    limits:
-      cpus: '2.0'
-      memory: 4G
-    reservations:
-      cpus: '1.0'
-      memory: 2G
-```
-
-## 🔄 更新とメンテナンス
-
-```bash
-# イメージ再ビルド
-docker-compose build --no-cache
-
-# 不要なイメージとボリューム削除
-docker system prune -f
-
-# 開発依存関係の更新
-docker-compose run --rm tor-scraper-dev uv lock --upgrade
-```
-
-## 📈 スケーリング
-
-複数インスタンスでの並列実行：
-
-```bash
-# 3つのインスタンスで並列実行
-docker-compose up --scale tor-scraper=3
-```
-
-環境変数でインスタンス固有の設定：
-
-```yaml
-environment:
-  - INSTANCE_ID=${INSTANCE_ID:-1}
-  - SEARCH_QUERY=${SEARCH_QUERY:-Python}
-``` 
+1. **権限設定**: `make setup-permissions` を実行
+2. **環境変数**: `USER_ID` と `GROUP_ID` が設定されているか確認
+3. **テスト実行**: `make test-permissions` で権限テストを実行
+4. **ログ確認**: `make logs` でエラーログを確認
+5. **シェル確認**: `make shell` でコンテナ内の状態を直接確認 

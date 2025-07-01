@@ -240,9 +240,7 @@ def wait_for_element_clickable(driver: WebDriver, selector: str, timeout: int = 
         return False
 
 
-def take_screenshot(
-    driver: WebDriver, filename: str | None = None, output_dir: str = "reports/screenshots"
-) -> str | None:
+def take_screenshot(driver: WebDriver, filename: str | None = None, output_dir: str = "data/screenshots") -> str | None:
     """
     Take a screenshot of the current page
 

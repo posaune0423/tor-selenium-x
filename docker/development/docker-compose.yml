@@ -9,7 +9,7 @@ services:
       - ../../src:/app/src:ro
       - ../../tests:/app/tests:ro
       # データとログ出力用
-      - ../../reports:/app/reports
+      - ../../data:/app/data
     env_file:
       - ../../.env
     environment:
@@ -44,7 +44,7 @@ services:
     volumes:
       - ../../src:/app/src
       - ../../tests:/app/tests
-      - ../../reports:/app/reports
+      - ../../data:/app/data
     env_file:
       - ../../.env
     environment:
@@ -69,7 +69,7 @@ services:
     volumes:
       - ../../src:/app/src
       - ../../tests:/app/tests
-      - ../../reports:/app/reports
+      - ../../data:/app/data
     env_file:
       - ../../.env
     environment:
@@ -81,7 +81,7 @@ services:
       - TBSELENIUM_TBB_PATH=/opt/torbrowser
     profiles:
       - test
-    command: ["uv", "run", "pytest", "--cov=src", "--cov-report=html:reports/coverage", "--cov-report=term-missing", "-v"]
+    command: ["uv", "run", "pytest", "--cov=src", "--cov-report=html:data/coverage", "--cov-report=term-missing", "-v"]
 
   # 一回限りのデータ収集用
   tor-scraper-once:
@@ -90,7 +90,7 @@ services:
       dockerfile: docker/development/Dockerfile
     container_name: tor-selenium-once
     volumes:
-      - ../../reports:/app/reports
+      - ../../data:/app/data
     env_file:
       - ../../.env
     environment:

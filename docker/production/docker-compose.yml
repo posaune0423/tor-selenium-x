@@ -55,7 +55,7 @@ services:
 
     # ボリューム（本番では最小限）
     volumes:
-      - tor-scraper-data:/app/reports
+      - tor-scraper-data:/app/data
 
     # ヘルスチェック
     healthcheck:

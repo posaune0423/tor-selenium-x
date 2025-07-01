@@ -16,8 +16,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/* \
     && apt-get clean
 
-# geckodriverをダウンロードしてインストール（本番用）
-RUN GECKO_VERSION=$(curl -s https://api.github.com/repos/mozilla/geckodriver/releases/latest | grep tag_name | cut -d '"' -f 4) && \
+# geckodriverをダウンロードしてインストール（特定バージョンを使用してビルドを安定化）
+RUN GECKO_VERSION="v0.34.0" && \
     ARCH=$(dpkg --print-architecture) && \
     if [ "$ARCH" = "arm64" ]; then GECKO_ARCH="linux-aarch64"; else GECKO_ARCH="linux64"; fi && \
     wget -O /tmp/geckodriver.tar.gz "https://github.com/mozilla/geckodriver/releases/download/${GECKO_VERSION}/geckodriver-${GECKO_VERSION}-${GECKO_ARCH}.tar.gz" && \
@@ -61,8 +61,8 @@ RUN uv sync --frozen --no-dev --no-editable
 # ソースコードをコピー
 COPY src/ ./src/
 
-# reports ディレクトリを作成
-RUN mkdir -p /app/reports \
+# data ディレクトリを作成
+RUN mkdir -p /app/data \
     && chown -R appuser:appuser /app /opt/torbrowser
 
 # 本番用エントリーポイント

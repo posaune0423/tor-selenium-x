@@ -82,7 +82,7 @@ line-ending = "auto"
 
 [tool.pytest.ini_options]
 minversion = "7.0"
-addopts = "-v --cov=src --cov-report=term-missing --cov-report=html:reports/coverage"
+addopts = "-v --cov=src --cov-report=term-missing --cov-report=html:data/coverage"
 testpaths = ["tests"]
 python_files = ["test_*.py", "*_test.py"]
 python_classes = ["Test*"]
@@ -95,7 +95,7 @@ markers = [
 [tool.coverage.run]
 source = ["src"]
 omit = ["*/tests/*", "*/__pycache__/*"]
-data_file = "reports/.coverage"
+data_file = "data/.coverage"
 
 [tool.coverage.report]
 exclude_lines = [
@@ -107,4 +107,4 @@ exclude_lines = [
 show_missing = true
 
 [tool.coverage.html]
-directory = "reports/coverage"
+directory = "data/coverage"

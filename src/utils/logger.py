@@ -16,7 +16,7 @@ DEFAULT_LOG_FORMAT: Final[str] = (
     "<cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>"
 )
 DEFAULT_LOG_LEVEL: Final[str] = "INFO"
-LOG_DIR: Final[Path] = Path("reports/logs")
+LOG_DIR: Final[Path] = Path("data/logs")
 
 
 def configure_logging(

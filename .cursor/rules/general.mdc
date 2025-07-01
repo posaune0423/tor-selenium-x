@@ -47,7 +47,7 @@ tor-selenium-x/
 ├── docker/                 # Docker設定
 │   ├── development/
 │   └── production/
-├── reports/               # レポート・ログ出力
+├── data/                  # データ・ログ出力
 ├── pyproject.toml         # プロジェクト設定
 ├── uv.lock               # 依存関係ロック
 └── Makefile              # 開発コマンド
