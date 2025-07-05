@@ -40,6 +40,9 @@ services:
     build:
       context: ../..
       dockerfile: docker/development/Dockerfile
+      args:
+        - USER_ID=${USER_ID:-1000}
+        - GROUP_ID=${GROUP_ID:-1000}
     container_name: tor-selenium-dev
     volumes:
       - ../../src:/app/src
@@ -54,6 +57,8 @@ services:
       - TOR_BROWSER_PATH=/opt/torbrowser
       - DISPLAY=:99
       - TBSELENIUM_TBB_PATH=/opt/torbrowser
+      - USER_ID=${USER_ID:-1000}
+      - GROUP_ID=${GROUP_ID:-1000}
     profiles:
       - dev
     command: ["uv", "run", "src/main.py"]

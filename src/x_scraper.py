@@ -3,7 +3,6 @@
 X (Twitter) scraper using Tor Browser with tbselenium - X scraping specific functionality
 """
 
-import json
 import time
 from datetime import datetime
 from pathlib import Path
@@ -17,7 +16,6 @@ from selenium.webdriver.remote.webelement import WebElement
 from tbselenium.tbdriver import TorBrowserDriver
 
 from src.constants import (
-    COOKIE_FILE_NAME,
     LOGIN_PAGE_LOAD_TIMEOUT,
     SCRAPING_RESULTS_DIR,
     TWITTER_LOGIN_URL,
@@ -25,8 +23,8 @@ from src.constants import (
     WAIT_SHORT,
 )
 from src.models import Tweet, UserProfile
-from src.utils import create_tor_browser_driver, take_screenshot, verify_tor_connection
-from src.utils.cookies import are_cookies_expired, load_cookies_from_file, save_cookies_to_file
+from src.utils import CookieManager, create_tor_browser_driver, take_screenshot, verify_tor_connection
+from src.utils.data_storage import save_profiles, save_tweets
 
 
 class XScraper:
@@ -61,10 +59,15 @@ class XScraper:
         self.data_dir = SCRAPING_RESULTS_DIR
         self._ensure_directory_exists(self.data_dir)
 
-        # Cookie file path using constants
-        self.cookie_file = self.data_dir / COOKIE_FILE_NAME
+        # Initialize cookie manager with user identifier
+        user_identifier = self.email or self.username
+        self.cookie_manager = CookieManager(user_identifier)
 
         logger.info(f"XScraper initialized with TBB path: {tbb_path}")
+        if user_identifier:
+            logger.info(f"Cookie management enabled for user: {user_identifier}")
+        else:
+            logger.info("Cookie management using default session")
 
     def _ensure_directory_exists(self, directory: Path) -> None:
         """
@@ -131,16 +134,15 @@ class XScraper:
             logger.error("Driver not initialized")
             return False
 
-        # Load cookies from file
-        cookies = load_cookies_from_file(str(self.cookie_file))
-        if not cookies:
-            logger.debug("No saved cookies found")
+        # Check if valid cookies exist
+        if not self.cookie_manager.has_valid_cookies():
+            logger.debug("No valid saved cookies found")
             return False
 
-        # Check if cookies are expired
-        if are_cookies_expired(cookies):
-            logger.info("Saved cookies are expired, removing...")
-            self._remove_expired_cookies()
+        # Load cookies using cookie manager
+        cookies = self.cookie_manager.load_cookies()
+        if not cookies:
+            logger.debug("Failed to load cookies")
             return False
 
         return self._apply_cookies_to_session(cookies)
@@ -148,7 +150,7 @@ class XScraper:
     def _remove_expired_cookies(self) -> None:
         """Remove expired cookie file"""
         try:
-            self.cookie_file.unlink(missing_ok=True)
+            self.cookie_manager.clear_cookies()
         except Exception as e:
             logger.warning(f"Failed to remove expired cookie file: {e}")
 
@@ -273,7 +275,7 @@ class XScraper:
             logger.info(f"After navigation - URL: {current_url}, Title: {page_title}")
 
             # Take debug screenshot
-            self._take_debug_screenshot("initial_login_page")
+            self.take_debug_snapshot("initial_login_page")
             self._log_page_elements_for_debugging("initial_login_page")
 
             return True
@@ -324,24 +326,15 @@ class XScraper:
             # Get all cookies from current session
             cookies = self.driver.get_cookies()
 
-            # Filter out cookies that are likely important for login persistence
-            important_cookies = []
-            important_names = {"auth_token", "ct0", "twid", "personalization_id", "guest_id"}
-
-            for cookie in cookies:
-                # Keep all cookies for X/Twitter domain
-                if (
-                    ".twitter.com" in cookie.get("domain", "")
-                    or "x.com" in cookie.get("domain", "")
-                    or cookie.get("name") in important_names
-                ):
-                    important_cookies.append(cookie)
-
-            if important_cookies:
-                save_cookies_to_file(important_cookies, str(self.cookie_file))
-                logger.info(f"Saved {len(important_cookies)} session cookies")
+            if cookies:
+                # Use cookie manager to save cookies (it handles filtering automatically)
+                success = self.cookie_manager.save_cookies(cookies)
+                if success:
+                    logger.info("Session cookies saved successfully")
+                else:
+                    logger.warning("Failed to save session cookies")
             else:
-                logger.warning("No important cookies found to save")
+                logger.warning("No cookies found in current session")
 
         except Exception as e:
             logger.error(f"Failed to save session cookies: {e}")
@@ -381,12 +374,12 @@ class XScraper:
 
             except NoSuchElementException:
                 logger.warning(f"Attempt {input_attempt}/3: Username field not found, retrying...")
-                self._take_debug_screenshot(f"username_field_not_found_attempt_{input_attempt}")
+                self.take_debug_snapshot(f"username_field_not_found_attempt_{input_attempt}")
                 if input_attempt < 3:
                     time.sleep(2)
 
         logger.error("Failed to input username after 3 attempts")
-        self._take_debug_screenshot("username_input_final_failure")
+        self.take_debug_snapshot("username_input_final_failure")
         return False
 
     def _input_unusual_activity(self) -> None:
@@ -539,7 +532,7 @@ class XScraper:
                     logger.info(f"After password input - Title: {page_title_after_password}")
 
                     # Take debug screenshot after password input
-                    self._take_debug_screenshot("after_password_input")
+                    self.take_debug_snapshot("after_password_input")
 
                     # Log page elements to see what's available
                     self._log_page_elements_for_debugging("after_password_input")
@@ -549,7 +542,7 @@ class XScraper:
                 except Exception as e:
                     logger.warning(f"Error entering password: {e}")
                     # Take screenshot on error
-                    self._take_debug_screenshot(f"password_input_error_attempt_{input_attempt}")
+                    self.take_debug_snapshot(f"password_input_error_attempt_{input_attempt}")
             else:
                 logger.warning(f"Attempt {input_attempt}/3: No password field found with any selector")
 
@@ -557,7 +550,7 @@ class XScraper:
                 self._log_page_elements_for_debugging(f"password_field_not_found_attempt_{input_attempt}")
 
                 # Take screenshot for debugging
-                self._take_debug_screenshot(f"password_field_not_found_attempt_{input_attempt}")
+                self.take_debug_snapshot(f"password_field_not_found_attempt_{input_attempt}")
 
                 # Wait before retrying
                 if input_attempt < 3:
@@ -565,7 +558,7 @@ class XScraper:
 
         logger.error("Failed to input password after 3 attempts")
         self._log_page_elements_for_debugging("password_input_final_failure")
-        self._take_debug_screenshot("password_input_final_failure")
+        self.take_debug_snapshot("password_input_final_failure")
         return False
 
     def _handle_2fa(self) -> bool:
@@ -744,52 +737,78 @@ class XScraper:
             return False
 
     def search_tweets(self, query: str, max_tweets: int = 10) -> list[Tweet]:
-        """Search for tweets"""
+        """
+        Search for tweets based on a query
+
+        Args:
+            query: Search query
+            max_tweets: Maximum number of tweets to collect
+
+        Returns:
+            list[Tweet]: List of collected tweets
+        """
+        tweets: list[Tweet] = []
+
         if not self.driver:
             logger.error("Driver not initialized")
-            return []
-
-        try:
-            # Navigate to search
-            search_url = f"https://x.com/search?q={query}&src=typed_query&f=live"
-            self.driver.get(search_url)
-            time.sleep(5)
-
-            tweets = []
-            tweet_elements = self.driver.find_elements(By.CSS_SELECTOR, "article[data-testid='tweet']")
-
-            for element in tweet_elements[:max_tweets]:
-                try:
-                    tweet = self._extract_tweet_data(element)
-                    if tweet:
-                        tweets.append(tweet)
-                except Exception as e:
-                    logger.warning(f"Failed to extract tweet: {e}")
-                    continue
-
-            logger.info(f"Extracted {len(tweets)} tweets for query: {query}")
             return tweets
 
+        try:
+            # Navigate to search URL
+            search_url = f"https://x.com/search?q={query}&src=typed_query&f=live"
+            self.driver.get(search_url)
+            time.sleep(WAIT_MEDIUM)
+
+            # Basic implementation - would need more sophisticated extraction
+            tweet_elements = self.driver.find_elements(By.CSS_SELECTOR, 'article[data-testid="tweet"]')[:max_tweets]
+
+            for element in tweet_elements:
+                tweet = self._extract_tweet_data(element)
+                if tweet:
+                    tweets.append(tweet)
+
+            logger.info(f"✅ Collected {len(tweets)} tweets for query: {query}")
+
+            # Auto-save using new storage system
+            if tweets:
+                save_tweets(tweets, target_user=None, query=query)
+
         except Exception as e:
-            logger.error(f"Failed to search tweets: {e}")
-            return []
+            logger.error(f"Error searching tweets: {e}")
+
+        return tweets
 
     def get_user_profile(self, username: str) -> UserProfile | None:
-        """Get user profile"""
+        """
+        Get user profile information
+
+        Args:
+            username: Username to get profile for
+
+        Returns:
+            UserProfile | None: Profile data if successful, None otherwise
+        """
         if not self.driver:
             logger.error("Driver not initialized")
             return None
 
         try:
-            # Navigate to profile
+            # Navigate to user profile
             profile_url = f"https://x.com/{username}"
             self.driver.get(profile_url)
-            time.sleep(5)
+            time.sleep(WAIT_MEDIUM)
 
-            return self._extract_profile_data(username)
+            profile = self._extract_profile_data(username)
+
+            if profile:
+                logger.info(f"✅ Retrieved profile for: @{username}")
+                # Auto-save using new storage system
+                save_profiles([profile], target_user=username)
+
+            return profile
 
         except Exception as e:
-            logger.error(f"Failed to get profile for {username}: {e}")
+            logger.error(f"Error getting user profile: {e}")
             return None
 
     def _extract_tweet_data(self, element: WebElement) -> Tweet | None:
@@ -807,18 +826,52 @@ class XScraper:
             href = author_element.get_attribute("href") if author_element else None
             author = href.split("/")[-1] if href else "unknown"
 
+            # Extract tweet ID and URL from timestamp link
+            tweet_id = None
+            tweet_url = None
+            timestamp = datetime.now().isoformat()  # Default fallback
+
+            try:
+                # 日付部分のaタグを探す (time要素を含むリンク)
+                timestamp_link = element.find_element(By.CSS_SELECTOR, "a[href*='/status/'] time")
+                if timestamp_link:
+                    # 親のaタグからhref属性を取得
+                    link_element = timestamp_link.find_element(By.XPATH, "./..")
+                    href_attr = link_element.get_attribute("href")
+
+                    if href_attr and "/status/" in href_attr:
+                        # URLからツイートIDを抽出
+                        # href="/username/status/1234567890" -> ID: 1234567890
+                        tweet_id = href_attr.split("/status/")[-1]
+                        # 完全なURLを構築
+                        tweet_url = f"https://twitter.com{href_attr}" if href_attr.startswith("/") else href_attr
+                        logger.debug(f"Extracted tweet ID: {tweet_id}, URL: {tweet_url}")
+
+                    # time要素のdatetime属性から正確な投稿時刻を取得
+                    datetime_attr = timestamp_link.get_attribute("datetime")
+                    if datetime_attr:
+                        timestamp = datetime_attr
+                        logger.debug(f"Extracted timestamp: {timestamp}")
+
+            except NoSuchElementException:
+                logger.debug("Timestamp link not found, using fallback values")
+            except Exception as e:
+                logger.debug(f"Error extracting timestamp data: {e}")
+
             # Extract metrics (simplified)
             likes = self._extract_metric(element, "like")
             retweets = self._extract_metric(element, "retweet")
             replies = self._extract_metric(element, "reply")
 
             return Tweet(
+                id=tweet_id,
                 text=text,
                 author=author,
+                url=tweet_url,
                 likes=likes,
                 retweets=retweets,
                 replies=replies,
-                timestamp=datetime.now().isoformat(),
+                timestamp=timestamp,
             )
 
         except Exception as e:
@@ -887,42 +940,38 @@ class XScraper:
             return 0
 
     def save_tweets_to_json(self, tweets: list[Tweet], filename: str) -> bool:
-        """Save tweets to JSON file"""
-        try:
-            # Ensure data directory exists
-            self.data_dir.mkdir(parents=True, exist_ok=True)
+        """
+        Save tweets to JSON file (legacy method - use save_tweets from utils instead)
 
-            output_path = self.data_dir / f"{filename}.json"
-            with open(output_path, "w", encoding="utf-8") as f:
-                json.dump([tweet.__dict__ for tweet in tweets], f, ensure_ascii=False, indent=2)
-            logger.info(f"Saved {len(tweets)} tweets to {output_path}")
-            return True
-        except Exception as e:
-            logger.error(f"Failed to save tweets to {self.data_dir}: {e}")
-            logger.debug(f"Current working directory: {Path.cwd()}")
-            logger.debug(f"Absolute data directory path: {self.data_dir.resolve()}")
-            return False
+        Args:
+            tweets: List of tweets to save
+            filename: Filename to save to
+
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        # Use new storage system with custom filename
+        return save_tweets(tweets, filename=filename)
 
     def save_profile_to_json(self, profile: UserProfile, filename: str) -> bool:
-        """Save profile to JSON file"""
-        try:
-            # Ensure data directory exists
-            self.data_dir.mkdir(parents=True, exist_ok=True)
+        """
+        Save profile to JSON file (legacy method - use save_profiles from utils instead)
 
-            output_path = self.data_dir / f"{filename}.json"
-            with open(output_path, "w", encoding="utf-8") as f:
-                json.dump(profile.__dict__, f, ensure_ascii=False, indent=2)
-            logger.info(f"Saved profile to {output_path}")
-            return True
-        except Exception as e:
-            logger.error(f"Failed to save profile to {self.data_dir}: {e}")
-            logger.debug(f"Current working directory: {Path.cwd()}")
-            logger.debug(f"Absolute data directory path: {self.data_dir.resolve()}")
-            return False
+        Args:
+            profile: Profile to save
+            filename: Filename to save to
+
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        # Use new storage system with custom filename
+        return save_profiles([profile], filename=filename)
 
     def take_screenshot(self, filename: str | None = None) -> str | None:
         """
-        Take a screenshot of the current page using utils
+        Take a single screenshot of the current page
+
+        Creates a single PNG file in the screenshots directory.
 
         Args:
             filename: Filename to save (without extension). If None, uses timestamp
@@ -934,54 +983,310 @@ class XScraper:
             logger.error("Driver not initialized - cannot take screenshot")
             return None
 
-        return take_screenshot(self.driver, filename)
+        try:
+            # Use constants for screenshot directory with environment detection
+            import os
 
-    def _take_debug_screenshot(self, description: str) -> None:
+            from src.constants import SCREENSHOTS_DIR, is_docker_environment
+
+            is_docker = is_docker_environment()
+            logger.info(f"🐳 Docker env: {is_docker}")
+            logger.info(f"📁 Screenshot dir: {SCREENSHOTS_DIR.absolute()}")
+            logger.info(f"📺 DISPLAY: {os.environ.get('DISPLAY', 'Not set')}")
+
+            # Ensure screenshots directory exists
+            try:
+                SCREENSHOTS_DIR.mkdir(parents=True, exist_ok=True)
+                logger.debug(f"✅ Screenshots directory ensured: {SCREENSHOTS_DIR}")
+            except Exception as e:
+                logger.error(f"❌ Failed to create screenshots directory: {e}")
+                return None
+
+            # Test directory write permissions
+            test_file = SCREENSHOTS_DIR / "test_write_permission.tmp"
+            try:
+                test_file.write_text("screenshot_test", encoding="utf-8")
+                content = test_file.read_text(encoding="utf-8")
+                test_file.unlink()
+
+                if content == "screenshot_test":
+                    logger.debug("✅ Screenshots directory write permission verified")
+                else:
+                    logger.error("❌ Screenshots directory write test: content mismatch")
+                    return None
+            except Exception as e:
+                logger.error(f"❌ Screenshots directory write permission failed: {e}")
+                return None
+
+            result = take_screenshot(self.driver, filename, str(SCREENSHOTS_DIR))
+
+            if result:
+                # Verify the file actually exists and has content
+                screenshot_file = Path(result)
+                if screenshot_file.exists():
+                    file_size = screenshot_file.stat().st_size
+                    logger.info(f"✅ Single screenshot saved: {result} ({file_size} bytes)")
+
+                    # Additional verification - check PNG header
+                    try:
+                        with open(screenshot_file, "rb") as f:
+                            header = f.read(8)
+                        if header.startswith(b"\x89PNG\r\n\x1a\n"):
+                            logger.debug("✅ PNG format verified")
+                        else:
+                            logger.warning("⚠️ Screenshot file may not be valid PNG format")
+                    except Exception as e:
+                        logger.warning(f"⚠️ Could not verify PNG format: {e}")
+                else:
+                    logger.error(f"❌ Screenshot file not found: {result}")
+                    return None
+            else:
+                logger.error("❌ Screenshot failed - no path returned")
+
+            return result
+
+        except Exception as e:
+            logger.error(f"❌ Unexpected error in take_screenshot: {e}")
+            import traceback
+
+            logger.error(f"Traceback: {traceback.format_exc()}")
+            return None
+
+    def take_debug_snapshot(self, description: str) -> str | None:
         """
-        Take debug screenshot with additional context for troubleshooting
+        Take comprehensive debug snapshot for troubleshooting
+
+        Creates a folder containing:
+        - screenshot.png: Page screenshot
+        - page_source.html: HTML source code
+        - metadata.txt: Debug information
 
         Args:
             description: Description of the error or state
+
+        Returns:
+            str | None: Path to debug folder, None if failed
         """
         if not self.driver:
-            logger.warning("Driver not initialized - cannot take debug screenshot")
-            return
+            logger.warning("Driver not initialized - cannot take debug snapshot")
+            return None
 
         try:
+            import time
+
             timestamp = time.strftime("%Y%m%d_%H%M%S")
             folder_name = f"{timestamp}_{description}"
 
-            # Create debug screenshots directory
-            debug_dir = Path("data/screenshots") / folder_name
-            debug_dir.mkdir(parents=True, exist_ok=True)
+            # Create debug snapshots directory using unified constants
+            from src.constants import SCREENSHOTS_DIR, is_docker_environment
 
-            # Take screenshot
+            debug_dir = SCREENSHOTS_DIR / "debug" / folder_name
+            logger.info(f"📁 Creating debug snapshot folder: {debug_dir.absolute()}")
+
+            try:
+                debug_dir.mkdir(parents=True, exist_ok=True)
+                logger.info(f"✅ Debug folder created: {debug_dir}")
+            except Exception as e:
+                logger.error(f"❌ Failed to create debug folder: {e}")
+                return None
+
+            # Docker environment debugging with unified detection
+            import os
+
+            is_docker = is_docker_environment()
+            logger.info(f"🐳 Docker environment: {is_docker}")
+            logger.info(f"📁 Debug folder: {debug_dir.absolute()}")
+            logger.info(f"📊 Folder exists: {debug_dir.exists()}")
+            logger.info(f"👤 Current user: {os.getuid() if hasattr(os, 'getuid') else 'N/A'}")
+            logger.info(f"📺 DISPLAY: {os.environ.get('DISPLAY', 'Not set')}")
+
+            # Enhanced directory permission verification
+            try:
+                test_file = debug_dir / "test_write.tmp"
+                test_data = f"permission_test_{timestamp}"
+                test_file.write_text(test_data, encoding="utf-8")
+                test_content = test_file.read_text(encoding="utf-8")
+                test_file.unlink()
+
+                if test_content == test_data:
+                    logger.info("✅ Debug folder write permission: OK")
+                else:
+                    logger.error("❌ Debug folder write permission: Content mismatch")
+                    return None
+            except Exception as e:
+                logger.error(f"❌ Debug folder write permission failed: {e}")
+                return None
+
+            # Track successfully created files
+            created_files = []
+
+            # 1. Take screenshot
             screenshot_path = debug_dir / "screenshot.png"
-            if self.driver.save_screenshot(str(screenshot_path)):
-                logger.info(f"Debug screenshot saved: {screenshot_path}")
+            logger.info(f"📸 Taking debug screenshot: {screenshot_path.absolute()}")
 
-            # Save HTML source
+            # Check driver state before screenshot
+            try:
+                driver_info = {
+                    "current_url": self.driver.current_url,
+                    "title": self.driver.title,
+                    "window_size": self.driver.get_window_size(),
+                }
+                logger.info(f"🌐 Driver state: {driver_info}")
+            except Exception as e:
+                logger.warning(f"Failed to get driver state: {e}")
+                driver_info = {"error": str(e)}
+
+            # Take screenshot with retry mechanism
+            screenshot_success = False
+            max_retries = 3
+
+            for attempt in range(max_retries):
+                try:
+                    logger.info(f"📸 Screenshot attempt {attempt + 1}/{max_retries}")
+                    screenshot_success = self.driver.save_screenshot(str(screenshot_path))
+
+                    if screenshot_success and screenshot_path.exists():
+                        file_size = screenshot_path.stat().st_size
+                        if file_size > 0:
+                            logger.info(f"✅ Screenshot saved: {file_size:,} bytes")
+
+                            # Verify PNG format
+                            try:
+                                with open(screenshot_path, "rb") as f:
+                                    header = f.read(8)
+                                if header.startswith(b"\x89PNG\r\n\x1a\n"):
+                                    logger.info("✅ PNG format verified")
+                                    created_files.append("screenshot.png")
+                                    break
+                                else:
+                                    logger.warning(f"⚠️ Attempt {attempt + 1}: Invalid PNG header")
+                                    screenshot_success = False
+                            except Exception as e:
+                                logger.warning(f"⚠️ Attempt {attempt + 1}: PNG verification failed: {e}")
+                                screenshot_success = False
+                        else:
+                            logger.warning(f"⚠️ Screenshot attempt {attempt + 1}: File empty")
+                            screenshot_success = False
+                    else:
+                        logger.warning(f"⚠️ Screenshot attempt {attempt + 1}: Failed or file not found")
+
+                except Exception as e:
+                    logger.error(f"❌ Screenshot attempt {attempt + 1} failed: {e}")
+
+                # Wait before retry
+                if attempt < max_retries - 1 and not screenshot_success:
+                    time.sleep(1)
+
+            # 2. Save HTML source
             html_path = debug_dir / "page_source.html"
-            with open(html_path, "w", encoding="utf-8") as f:
-                f.write(self.driver.page_source)
+            logger.info(f"📄 Saving HTML source: {html_path.absolute()}")
 
-            # Save metadata
+            try:
+                page_source = self.driver.page_source
+                if page_source and len(page_source.strip()) > 0:
+                    with open(html_path, "w", encoding="utf-8") as f:
+                        f.write(page_source)
+
+                    # Verify HTML file
+                    if html_path.exists():
+                        html_size = html_path.stat().st_size
+                        if html_size > 0:
+                            logger.info(f"✅ HTML source saved: {html_size:,} bytes")
+
+                            # Basic HTML validation
+                            try:
+                                with open(html_path, encoding="utf-8") as f:
+                                    content = f.read(100)  # Read first 100 chars
+                                if any(tag in content.lower() for tag in ["<html", "<head", "<body", "<!doctype"]):
+                                    logger.info("✅ HTML content format verified")
+                                    created_files.append("page_source.html")
+                                else:
+                                    logger.warning("⚠️ HTML file created but may not contain valid HTML")
+                            except Exception as e:
+                                logger.warning(f"⚠️ Could not verify HTML content: {e}")
+                        else:
+                            logger.error(f"❌ HTML file created but empty: {html_path}")
+                    else:
+                        logger.error(f"❌ HTML file not found after save: {html_path}")
+                else:
+                    logger.warning("⚠️ Page source is empty or None")
+
+            except Exception as e:
+                logger.error(f"❌ Failed to save HTML source: {e}")
+
+            # 3. Save metadata
             metadata_path = debug_dir / "metadata.txt"
-            with open(metadata_path, "w", encoding="utf-8") as f:
-                f.write("Debug Screenshot Metadata\n")
-                f.write("=========================\n")
-                f.write(f"Timestamp: {timestamp}\n")
-                f.write(f"Description: {description}\n")
-                f.write(f"Current URL: {self.driver.current_url}\n")
-                f.write(f"Page Title: {self.driver.title}\n")
-                f.write(f"Window Size: {self.driver.get_window_size()}\n")
-                f.write(f"Screenshot: {screenshot_path}\n")
-                f.write(f"HTML Source: {html_path}\n")
+            logger.info(f"📋 Saving metadata: {metadata_path.absolute()}")
 
-            logger.info(f"Debug data saved in folder: {debug_dir}")
+            try:
+                metadata_content = []
+                metadata_content.append("Debug Snapshot Metadata")
+                metadata_content.append("========================")
+                metadata_content.append(f"Timestamp: {timestamp}")
+                metadata_content.append(f"Description: {description}")
+                metadata_content.append(f"Docker Environment: {is_docker}")
+                metadata_content.append(f"Debug Folder: {debug_dir.absolute()}")
+
+                # Safe driver info writing
+                try:
+                    metadata_content.append(f"Current URL: {self.driver.current_url}")
+                    metadata_content.append(f"Page Title: {self.driver.title}")
+                    metadata_content.append(f"Window Size: {self.driver.get_window_size()}")
+                except Exception as e:
+                    metadata_content.append(f"Driver Info Error: {e}")
+
+                # System information
+                import sys
+
+                metadata_content.append(f"Python Version: {sys.version}")
+                metadata_content.append(f"Working Directory: {os.getcwd()}")
+                metadata_content.append("Environment Variables:")
+                for key in ["DISPLAY", "TBB_PATH", "PYTHONPATH"]:
+                    metadata_content.append(f"  {key}: {os.environ.get(key, 'Not set')}")
+
+                # File information
+                metadata_content.append("\nFiles Created:")
+                for filename in created_files:
+                    file_path = debug_dir / filename
+                    if file_path.exists():
+                        file_size = file_path.stat().st_size
+                        metadata_content.append(f"  {filename}: {file_size:,} bytes")
+                    else:
+                        metadata_content.append(f"  {filename}: Not created")
+
+                # Write metadata
+                with open(metadata_path, "w", encoding="utf-8") as f:
+                    f.write("\n".join(metadata_content))
+
+                # Verify metadata file
+                if metadata_path.exists():
+                    metadata_size = metadata_path.stat().st_size
+                    if metadata_size > 0:
+                        logger.info(f"✅ Metadata saved: {metadata_size:,} bytes")
+                        created_files.append("metadata.txt")
+                    else:
+                        logger.error(f"❌ Metadata file created but empty: {metadata_path}")
+                else:
+                    logger.error(f"❌ Metadata file not found after save: {metadata_path}")
+
+            except Exception as e:
+                logger.error(f"❌ Failed to save metadata: {e}")
+
+            # Final summary
+            if created_files:
+                logger.success(f"🎯 Debug snapshot completed: {debug_dir}")
+                logger.info(f"📄 Files created: {', '.join(created_files)}")
+                return str(debug_dir)
+            else:
+                logger.error(f"❌ Debug snapshot failed: No files created in {debug_dir}")
+                return None
 
         except Exception as e:
-            logger.error(f"Failed to take debug screenshot: {e}")
+            logger.error(f"❌ Unexpected error in take_debug_snapshot: {e}")
+            import traceback
+
+            logger.error(f"Traceback: {traceback.format_exc()}")
+            return None
 
     def _log_page_elements_for_debugging(self, context: str) -> None:
         """
@@ -1083,13 +1388,7 @@ class XScraper:
             bool: True if successful, False otherwise
         """
         try:
-            if self.cookie_file.exists():
-                self.cookie_file.unlink()
-                logger.info("Saved cookies cleared successfully")
-                return True
-            else:
-                logger.info("No saved cookies to clear")
-                return True
+            return self.cookie_manager.clear_cookies()
         except Exception as e:
             logger.error(f"Failed to clear saved cookies: {e}")
             return False

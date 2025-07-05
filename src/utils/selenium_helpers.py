@@ -242,7 +242,7 @@ def wait_for_element_clickable(driver: WebDriver, selector: str, timeout: int = 
 
 def take_screenshot(driver: WebDriver, filename: str | None = None, output_dir: str = "data/screenshots") -> str | None:
     """
-    Take a screenshot of the current page
+    Take a screenshot of the current page with enhanced reliability
 
     Args:
         driver: WebDriver instance
@@ -257,32 +257,106 @@ def take_screenshot(driver: WebDriver, filename: str | None = None, output_dir: 
         return None
 
     try:
-        # Create screenshot directory
+        # Create screenshot directory with detailed logging
         screenshot_dir = Path(output_dir)
-        screenshot_dir.mkdir(parents=True, exist_ok=True)
+        logger.info(f"📁 Creating screenshot directory: {screenshot_dir.absolute()}")
+
+        try:
+            screenshot_dir.mkdir(parents=True, exist_ok=True)
+            logger.info(f"✅ Directory created/verified: {screenshot_dir}")
+        except Exception as e:
+            logger.error(f"❌ Failed to create directory {screenshot_dir}: {e}")
+            return None
+
+        # Check directory permissions
+        try:
+            test_file = screenshot_dir / "test_write_permission.tmp"
+            test_file.write_text("test", encoding="utf-8")
+            test_file.unlink()
+            logger.info("✅ Directory write permission verified")
+        except Exception as e:
+            logger.error(f"❌ Directory write permission failed: {e}")
+            return None
 
         # Generate filename if not provided
         if filename is None:
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             filename = f"screenshot_{timestamp}"
 
-        # Add .png extension if not present
-        if not filename.endswith(".png"):
-            filename = f"{filename}.png"
+        # Sanitize filename and add .png extension if not present
+        import re
+
+        safe_filename = re.sub(r'[<>:"/\\|?*]', "_", filename)
+        if not safe_filename.endswith(".png"):
+            safe_filename = f"{safe_filename}.png"
 
         # Full path
-        screenshot_path = screenshot_dir / filename
+        screenshot_path = screenshot_dir / safe_filename
+        logger.info(f"📸 Taking screenshot: {screenshot_path.absolute()}")
 
-        # Take screenshot
-        success = driver.save_screenshot(str(screenshot_path))
+        # Check driver state before screenshot
+        try:
+            current_url = driver.current_url
+            page_title = driver.title or "No title"
+            window_size = driver.get_window_size()
+            logger.info(f"🌐 Page state - URL: {current_url}, Title: {page_title}, Size: {window_size}")
+        except Exception as e:
+            logger.warning(f"Failed to get page state: {e}")
 
-        if success:
-            logger.info(f"✅ Screenshot saved: {screenshot_path}")
-            return str(screenshot_path)
+        # Take screenshot with retry mechanism
+        max_retries = 3
+        screenshot_success = False
+
+        for attempt in range(max_retries):
+            try:
+                logger.info(f"📸 Screenshot attempt {attempt + 1}/{max_retries}")
+                screenshot_success = driver.save_screenshot(str(screenshot_path))
+
+                if screenshot_success:
+                    logger.info("✅ Driver save_screenshot() returned True")
+                    break
+                else:
+                    logger.warning(f"⚠️ Driver save_screenshot() returned False on attempt {attempt + 1}")
+
+            except Exception as e:
+                logger.error(f"❌ Screenshot attempt {attempt + 1} failed: {e}")
+                if attempt == max_retries - 1:
+                    return None
+
+        # Verify file was actually created and has content
+        if screenshot_path.exists():
+            file_size = screenshot_path.stat().st_size
+            if file_size > 0:
+                logger.info(f"✅ Screenshot saved successfully: {screenshot_path} ({file_size:,} bytes)")
+
+                # Additional verification - try to read the file
+                try:
+                    with open(screenshot_path, "rb") as f:
+                        header = f.read(8)
+                    # PNG files start with specific byte sequence
+                    if header.startswith(b"\x89PNG\r\n\x1a\n"):
+                        logger.info("✅ PNG file format verified")
+                    else:
+                        logger.warning("⚠️ File created but may not be valid PNG format")
+                except Exception as e:
+                    logger.warning(f"⚠️ Could not verify PNG format: {e}")
+
+                return str(screenshot_path)
+            else:
+                logger.error(f"❌ Screenshot file created but empty: {screenshot_path}")
+                # Try to remove empty file
+                import contextlib
+
+                with contextlib.suppress(Exception):
+                    screenshot_path.unlink()
+                return None
         else:
-            logger.error("❌ Failed to save screenshot")
+            logger.error(f"❌ Screenshot file not found after save: {screenshot_path}")
             return None
 
     except Exception as e:
-        logger.error(f"Error taking screenshot: {e}")
+        logger.error(f"❌ Unexpected error in take_screenshot: {e}")
+        import traceback
+
+        logger.error(f"Traceback: {traceback.format_exc()}")
         return None

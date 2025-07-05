@@ -4,15 +4,28 @@ Data models for X (Twitter) scraper
 """
 
 from dataclasses import dataclass, field
+from enum import Enum
 
 
-@dataclass
-class XCredentials:
-    """X (Twitter) login credentials"""
+class DataType(Enum):
+    """スクレイピングデータの種別 - シンプル化版"""
 
-    email: str
-    password: str
-    username: str
+    JSON_DATA = "json_data"  # 全てのスクレイピングデータ(ツイート、プロフィール、検索結果等)
+    COOKIES = "cookies"  # セッション用クッキーデータ
+    SCREENSHOTS = "screenshots"  # スクリーンショット画像
+    LOGS = "logs"  # ログファイル
+
+
+class ContentType(Enum):
+    """コンテンツの種別"""
+
+    TEXT = "text"
+    IMAGE = "image"
+    VIDEO = "video"
+    GIF = "gif"
+    POLL = "poll"
+    RETWEET = "retweet"
+    QUOTE_TWEET = "quote_tweet"
 
 
 @dataclass
@@ -35,6 +48,13 @@ class Tweet:
     media_urls: list[str] = field(default_factory=list)
     hashtags: list[str] = field(default_factory=list)
     mentions: list[str] = field(default_factory=list)
+    content_type: ContentType = ContentType.TEXT
+    is_retweet: bool = False
+    is_reply: bool = False
+    parent_tweet_id: str | None = None
+    conversation_id: str | None = None
+    lang: str | None = None
+    source: str | None = None  # Twitter for iPhone, Twitter Web App, etc.
 
 
 @dataclass
@@ -53,14 +73,20 @@ class UserProfile:
     profile_image_url: str | None = None
     banner_image_url: str | None = None
     joined_date: str | None = None
+    user_id: str | None = None
+    is_protected: bool = False
+    is_verified_blue: bool = False  # X Premium verification
+    pinned_tweet_id: str | None = None
 
 
 @dataclass
-class SessionState:
-    """Session management state"""
+class SearchResult:
+    """検索結果のデータ"""
 
-    is_logged_in: bool = False
-    current_user: str | None = None
-    session_cookies: list[dict] = field(default_factory=list)
-    last_activity: str | None = None
-    login_timestamp: str | None = None
+    query: str
+    search_type: str  # "top", "latest", "people", "photos", "videos"
+    tweets: list[Tweet] = field(default_factory=list)
+    profiles: list[UserProfile] = field(default_factory=list)
+    total_results: int = 0
+    has_more: bool = False
+    next_cursor: str | None = None

@@ -9,7 +9,6 @@ from unittest.mock import Mock, patch
 import pytest
 from selenium.common.exceptions import NoSuchElementException
 
-from src.constants import COOKIE_FILE_NAME, SCRAPING_RESULTS_DIR
 from src.models import Tweet, UserProfile
 from src.x_scraper import XScraper
 
@@ -45,9 +44,9 @@ class TestXScraper:
         assert self.scraper.username == TEST_USERNAME
         assert self.scraper.password == TEST_PASSWORD
         assert self.scraper.driver is None
-        # Check cookie file path uses constants
-        expected_cookie_path = SCRAPING_RESULTS_DIR / COOKIE_FILE_NAME
-        assert self.scraper.cookie_file == expected_cookie_path
+        # Check cookie manager is initialized
+        assert self.scraper.cookie_manager is not None
+        assert self.scraper.cookie_manager.user_identifier == TEST_EMAIL
 
     def test_init_without_credentials(self):
         """Test XScraper initialization without credentials"""
@@ -355,7 +354,14 @@ class TestXScraper:
         mock_driver.save_screenshot.return_value = True
         self.scraper.driver = mock_driver
 
-        with patch("pathlib.Path.mkdir"), patch("pathlib.Path.exists", return_value=True):
+        with (
+            patch("pathlib.Path.mkdir"),
+            patch("pathlib.Path.exists", return_value=True),
+            patch("pathlib.Path.stat") as mock_stat,
+        ):
+            # Mock file stats
+            mock_stat.return_value.st_size = 12345
+
             result = self.scraper.take_screenshot("test_screenshot")
             # Check that a path is returned (actual path will be data/screenshots/test_screenshot.png)
             assert result is not None
@@ -367,7 +373,14 @@ class TestXScraper:
         mock_driver.save_screenshot.return_value = True
         self.scraper.driver = mock_driver
 
-        with patch("pathlib.Path.mkdir"), patch("pathlib.Path.exists", return_value=True):
+        with (
+            patch("pathlib.Path.mkdir"),
+            patch("pathlib.Path.exists", return_value=True),
+            patch("pathlib.Path.stat") as mock_stat,
+        ):
+            # Mock file stats
+            mock_stat.return_value.st_size = 12345
+
             result = self.scraper.take_screenshot()
             # Check that a path is returned with timestamp
             assert result is not None
@@ -380,7 +393,14 @@ class TestXScraper:
         mock_driver.save_screenshot.return_value = True
         self.scraper.driver = mock_driver
 
-        with patch("pathlib.Path.mkdir"), patch("pathlib.Path.exists", return_value=True):
+        with (
+            patch("pathlib.Path.mkdir"),
+            patch("pathlib.Path.exists", return_value=True),
+            patch("pathlib.Path.stat") as mock_stat,
+        ):
+            # Mock file stats
+            mock_stat.return_value.st_size = 12345
+
             result = self.scraper.take_screenshot("test_screenshot")
             assert result is not None
             assert "test_screenshot.png" in result
@@ -391,7 +411,14 @@ class TestXScraper:
         mock_driver.save_screenshot.return_value = True
         self.scraper.driver = mock_driver
 
-        with patch("pathlib.Path.mkdir"), patch("pathlib.Path.exists", return_value=True):
+        with (
+            patch("pathlib.Path.mkdir"),
+            patch("pathlib.Path.exists", return_value=True),
+            patch("pathlib.Path.stat") as mock_stat,
+        ):
+            # Mock file stats
+            mock_stat.return_value.st_size = 12345
+
             result = self.scraper.take_screenshot("test_screenshot.png")
             assert result is not None
             assert "test_screenshot.png" in result
@@ -415,8 +442,7 @@ class TestXScraper:
         result = self.scraper.take_screenshot("test.png")
         assert result is None
 
-    @patch("src.x_scraper.save_cookies_to_file")
-    def test_save_session_cookies_success(self, mock_save_cookies):
+    def test_save_session_cookies_success(self):
         """Test successful cookie saving"""
         mock_driver = Mock()
         mock_cookies = [
@@ -426,15 +452,11 @@ class TestXScraper:
         ]
         mock_driver.get_cookies.return_value = mock_cookies
         self.scraper.driver = mock_driver
-        mock_save_cookies.return_value = True
 
-        self.scraper._save_session_cookies()
-
-        # Should save only Twitter/X domain cookies
-        mock_save_cookies.assert_called_once()
-        saved_cookies = mock_save_cookies.call_args[0][0]
-        assert len(saved_cookies) == 2  # Only Twitter cookies should be saved
-        assert all(".twitter.com" in cookie["domain"] for cookie in saved_cookies)
+        # Mock the cookie manager's save_cookies method
+        with patch.object(self.scraper.cookie_manager, "save_cookies", return_value=True) as mock_save:
+            self.scraper._save_session_cookies()
+            mock_save.assert_called_once_with(mock_cookies)
 
     def test_save_session_cookies_no_driver(self):
         """Test cookie saving without driver"""
@@ -443,64 +465,54 @@ class TestXScraper:
         # Should not raise exception
         self.scraper._save_session_cookies()
 
-    @patch("src.x_scraper.load_cookies_from_file")
-    @patch("src.x_scraper.are_cookies_expired")
-    def test_try_cookie_login_success(self, mock_are_expired, mock_load_cookies):
+    def test_try_cookie_login_success(self):
         """Test successful cookie-based login"""
         mock_driver = Mock()
         mock_cookies = [
             {"name": "auth_token", "value": "abc123", "domain": ".twitter.com", "path": "/"},
         ]
-        mock_load_cookies.return_value = mock_cookies
-        mock_are_expired.return_value = False
         self.scraper.driver = mock_driver
 
-        # Mock _verify_login to return True
-        with patch.object(self.scraper, "_verify_login", return_value=True):
+        # Mock cookie manager methods
+        with (
+            patch.object(self.scraper.cookie_manager, "has_valid_cookies", return_value=True),
+            patch.object(self.scraper.cookie_manager, "load_cookies", return_value=mock_cookies),
+            patch.object(self.scraper, "_apply_cookies_to_session", return_value=True),
+        ):
             result = self.scraper._try_cookie_login()
 
         assert result is True
-        mock_driver.get.assert_called_with("https://twitter.com")
-        mock_driver.add_cookie.assert_called_once()
-        mock_driver.refresh.assert_called_once()
 
-    @patch("src.x_scraper.load_cookies_from_file")
-    def test_try_cookie_login_no_cookies(self, mock_load_cookies):
+    def test_try_cookie_login_no_cookies(self):
         """Test cookie login with no saved cookies"""
         mock_driver = Mock()
-        mock_load_cookies.return_value = []
         self.scraper.driver = mock_driver
 
-        result = self.scraper._try_cookie_login()
+        # Mock cookie manager to return no valid cookies
+        with patch.object(self.scraper.cookie_manager, "has_valid_cookies", return_value=False):
+            result = self.scraper._try_cookie_login()
 
         assert result is False
 
-    @patch("src.x_scraper.load_cookies_from_file")
-    @patch("src.x_scraper.are_cookies_expired")
-    @patch("pathlib.Path.unlink")
-    def test_try_cookie_login_expired_cookies(self, mock_unlink, mock_are_expired, mock_load_cookies):
+    def test_try_cookie_login_expired_cookies(self):
         """Test cookie login with expired cookies"""
         mock_driver = Mock()
-        mock_cookies = [{"name": "auth_token", "value": "abc123"}]
-        mock_load_cookies.return_value = mock_cookies
-        mock_are_expired.return_value = True
         self.scraper.driver = mock_driver
 
-        result = self.scraper._try_cookie_login()
+        # Mock cookie manager to return no valid cookies (expired)
+        with patch.object(self.scraper.cookie_manager, "has_valid_cookies", return_value=False):
+            result = self.scraper._try_cookie_login()
 
         assert result is False
-        mock_unlink.assert_called_once_with(missing_ok=True)
 
-    @patch.object(Path, "exists")
-    @patch.object(Path, "unlink")
-    def test_clear_saved_cookies_success(self, mock_unlink, mock_exists):
+    def test_clear_saved_cookies_success(self):
         """Test successful cookie clearing"""
-        mock_exists.return_value = True
-
-        result = self.scraper.clear_saved_cookies()
+        # Mock cookie manager's clear_cookies method
+        with patch.object(self.scraper.cookie_manager, "clear_cookies", return_value=True) as mock_clear:
+            result = self.scraper.clear_saved_cookies()
 
         assert result is True
-        mock_unlink.assert_called_once()
+        mock_clear.assert_called_once()
 
     @patch.object(Path, "exists")
     def test_clear_saved_cookies_no_file(self, mock_exists):
@@ -570,6 +582,76 @@ class TestXScraper:
         # Should not call manual login methods when cookie login succeeds
         mock_verify.assert_not_called()
         mock_save_cookies.assert_not_called()
+
+    def test_take_debug_screenshot_file_creation(self):
+        """Test that debug screenshot creates all expected files"""
+        from pathlib import Path
+
+        # Create a mock that actually creates a file
+        def mock_save_screenshot(file_path):
+            # Create a minimal PNG file for testing
+            png_header = b"\x89PNG\r\n\x1a\n" + b"\x00" * 100  # Simple PNG header + data
+            Path(file_path).write_bytes(png_header)
+            return True
+
+        mock_driver = Mock()
+        mock_driver.current_url = "https://x.com/test"
+        mock_driver.title = "Test Page"
+        mock_driver.get_window_size.return_value = {"width": 1920, "height": 1080}
+        mock_driver.page_source = "<html><head><title>Test</title></head><body>Test content</body></html>"
+        mock_driver.save_screenshot.side_effect = mock_save_screenshot
+
+        # Create scraper instance
+        scraper = XScraper(tbb_path="/opt/torbrowser", headless=True)
+        scraper.driver = mock_driver
+
+        # Take debug screenshot
+        description = "test_file_creation"
+        scraper.take_debug_snapshot(description)
+
+        # Check that debug directory was created
+        import time
+
+        from src.constants import SCREENSHOTS_DIR
+
+        timestamp_pattern = time.strftime("%Y%m%d_%H%M")  # Pattern matching for timestamp
+        debug_dir = SCREENSHOTS_DIR / "debug"
+        debug_dirs = list(debug_dir.glob(f"{timestamp_pattern}*{description}"))
+
+        assert len(debug_dirs) > 0, f"Debug directory not found matching pattern: {timestamp_pattern}*{description}"
+        debug_dir = debug_dirs[0]
+
+        # Verify all expected files exist
+        screenshot_file = debug_dir / "screenshot.png"
+        html_file = debug_dir / "page_source.html"
+        metadata_file = debug_dir / "metadata.txt"
+
+        assert screenshot_file.exists(), f"Screenshot PNG file not created: {screenshot_file}"
+        assert html_file.exists(), f"Page source HTML file not created: {html_file}"
+        assert metadata_file.exists(), f"Metadata txt file not created: {metadata_file}"
+
+        # Verify file contents are not empty
+        assert screenshot_file.stat().st_size > 0, "Screenshot file is empty"
+        assert html_file.stat().st_size > 0, "HTML file is empty"
+        assert metadata_file.stat().st_size > 0, "Metadata file is empty"
+
+        # Verify HTML content
+        html_content = html_file.read_text(encoding="utf-8")
+        assert "<html>" in html_content, "HTML file does not contain valid HTML content"
+        assert "Test content" in html_content, "HTML file does not contain expected page content"
+
+        # Verify metadata content
+        metadata_content = metadata_file.read_text(encoding="utf-8")
+        assert "Debug Snapshot Metadata" in metadata_content, "Metadata file missing header"
+        assert description in metadata_content, "Metadata file missing description"
+        assert "https://x.com/test" in metadata_content, "Metadata file missing URL"
+        assert "Files Created:" in metadata_content, "Metadata file missing files created info"
+        assert "page_source.html" in metadata_content, "Metadata file missing HTML file info"
+
+        # Clean up - remove test files
+        import shutil
+
+        shutil.rmtree(debug_dir)
 
 
 class TestTweet:

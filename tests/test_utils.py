@@ -4,11 +4,18 @@ Unit tests for utility functions
 """
 
 import os
-from unittest.mock import Mock, patch
+from unittest.mock import MagicMock, Mock, patch
 
 import pytest
 from selenium.webdriver.common.by import By
 
+from src.models import (
+    ContentType,
+    DataType,
+    SearchResult,
+    Tweet,
+    UserProfile,
+)
 from src.utils import (
     clean_text,
     configure_logging,
@@ -20,6 +27,13 @@ from src.utils import (
     setup_file_logging,
     validate_x_username,
     wait_for_element,
+)
+from src.utils.data_storage import (
+    generate_filename,
+    list_json_files,
+    save_profiles,
+    save_search_results,
+    save_tweets,
 )
 
 
@@ -181,18 +195,155 @@ class TestSeleniumHelpers:
         mock_wait.assert_called_once()
 
     @patch("src.utils.selenium_helpers.WebDriverWait")
-    def test_wait_for_element_timeout(self, mock_wait):
-        """Test element waiting timeout"""
+    def test_wait_for_element_timeout(self, mock_wait_class):
+        """Test waiting for element with timeout"""
         from selenium.common.exceptions import TimeoutException
 
-        # Mock timeout
         mock_driver = Mock()
-        mock_wait_instance = Mock()
-        mock_wait.return_value = mock_wait_instance
-        mock_wait_instance.until.side_effect = TimeoutException("Timeout")
+        mock_wait = Mock()
+        mock_wait_class.return_value = mock_wait
+        mock_wait.until.side_effect = TimeoutException()
 
-        result = wait_for_element(mock_driver, By.ID, "test-id")
+        from src.utils.selenium_helpers import wait_for_element
+
+        result = wait_for_element(mock_driver, "id", "test-id", timeout=5)
         assert result is False
+
+    def test_enhanced_take_screenshot_success(self):
+        """Test enhanced take_screenshot function creates and verifies PNG file"""
+        import tempfile
+        from pathlib import Path
+
+        from src.utils.selenium_helpers import take_screenshot
+
+        # Create a mock that actually creates a file
+        def mock_save_screenshot(file_path):
+            # Create a minimal PNG file for testing
+            png_header = b"\x89PNG\r\n\x1a\n" + b"\x00" * 100  # Simple PNG header + data
+            Path(file_path).write_bytes(png_header)
+            return True
+
+        mock_driver = Mock()
+        mock_driver.current_url = "https://test.com"
+        mock_driver.title = "Test Page"
+        mock_driver.get_window_size.return_value = {"width": 1920, "height": 1080}
+        mock_driver.save_screenshot.side_effect = mock_save_screenshot
+
+        # Use temporary directory for testing
+        with tempfile.TemporaryDirectory() as temp_dir:
+            filename = "test_enhanced_screenshot"
+            result = take_screenshot(mock_driver, filename, temp_dir)
+
+            # Check that function returns path
+            assert result is not None, "take_screenshot should return file path"
+
+            # Verify file exists
+            screenshot_path = Path(result)
+            assert screenshot_path.exists(), f"Screenshot file not created: {screenshot_path}"
+
+            # Verify filename has .png extension
+            assert screenshot_path.name.endswith(".png"), "Screenshot file should have .png extension"
+            assert filename in screenshot_path.name, "Screenshot filename should contain provided name"
+
+            # Verify PNG format is detected
+            assert screenshot_path.stat().st_size > 0, "Screenshot file should not be empty"
+
+    def test_enhanced_take_screenshot_with_retry_mechanism(self):
+        """Test that screenshot retry mechanism works properly"""
+        # Create a mock that actually creates files on the third attempt
+        call_count = [0]  # Use list to make it mutable in closure
+
+        def mock_save_screenshot_with_retry(file_path):
+            call_count[0] += 1
+            if call_count[0] < 3:
+                return False  # Fail first two attempts
+            else:
+                # Create actual PNG file on third attempt
+                png_header = b"\x89PNG\r\n\x1a\n" + b"\x00" * 100
+                Path(file_path).write_bytes(png_header)
+                return True
+
+        mock_driver = Mock()
+        mock_driver.current_url = "https://test.com"
+        mock_driver.title = "Test Page"
+        mock_driver.get_window_size.return_value = {"width": 1920, "height": 1080}
+        mock_driver.save_screenshot.side_effect = mock_save_screenshot_with_retry
+
+        import tempfile
+        from pathlib import Path
+
+        from src.utils.selenium_helpers import take_screenshot
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            result = take_screenshot(mock_driver, "retry_test", temp_dir)
+
+            # Should succeed after retries
+            assert result is not None, "Screenshot should succeed after retries"
+
+            # Verify file exists and has content
+            result_file = Path(result)
+            assert result_file.exists(), "Screenshot file should exist"
+            assert result_file.stat().st_size > 0, "Screenshot file should not be empty"
+
+    def test_enhanced_take_screenshot_failure_handling(self):
+        """Test proper handling of screenshot failures"""
+        mock_driver = Mock()
+        mock_driver.current_url = "https://test.com"
+        mock_driver.title = "Test Page"
+        mock_driver.get_window_size.return_value = {"width": 1920, "height": 1080}
+
+        # Always fail
+        mock_driver.save_screenshot.return_value = False
+
+        import tempfile
+
+        from src.utils.selenium_helpers import take_screenshot
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            result = take_screenshot(mock_driver, "failure_test", temp_dir)
+
+            # Should return None on failure
+            assert result is None, "Screenshot should return None on failure"
+
+            # Verify retry attempts were made
+            assert mock_driver.save_screenshot.call_count == 3, "Should attempt retry 3 times"
+
+    def test_enhanced_take_screenshot_filename_sanitization(self):
+        """Test filename sanitization for special characters"""
+
+        # Create a mock that actually creates a file
+        def mock_save_screenshot_with_file(file_path):
+            png_header = b"\x89PNG\r\n\x1a\n" + b"\x00" * 100
+            Path(file_path).write_bytes(png_header)
+            return True
+
+        mock_driver = Mock()
+        mock_driver.current_url = "https://test.com"
+        mock_driver.title = "Test Page"
+        mock_driver.get_window_size.return_value = {"width": 1920, "height": 1080}
+        mock_driver.save_screenshot.side_effect = mock_save_screenshot_with_file
+
+        import tempfile
+        from pathlib import Path
+
+        from src.utils.selenium_helpers import take_screenshot
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            # Test with problematic filename characters
+            unsafe_filename = 'test<>:"/\\|?*screenshot'
+            result = take_screenshot(mock_driver, unsafe_filename, temp_dir)
+
+            assert result is not None, "Screenshot should succeed with sanitized filename"
+
+            # Verify file exists and filename was sanitized
+            result_file = Path(result)
+            assert result_file.exists(), "Screenshot file should exist"
+            assert result_file.stat().st_size > 0, "Screenshot file should not be empty"
+
+            # Check that unsafe characters were replaced
+            assert "<" not in result_file.name, "Unsafe characters should be sanitized"
+            assert ">" not in result_file.name, "Unsafe characters should be sanitized"
+            assert "test_________screenshot.png" in result, "Filename should be properly sanitized"
 
 
 class TestLoggingConfiguration:
@@ -232,6 +383,158 @@ class TestLoggingConfiguration:
             mock_mkdir.assert_called_once_with(parents=True, exist_ok=True)
             # Check that logger methods were called
             assert mock_logger.add.called
+
+
+class TestDataStorage:
+    """Test data storage functionality - シンプル化版"""
+
+    def test_generate_filename(self):
+        """Test filename generation for different data types"""
+        # Test basic filename
+        filename = generate_filename("tweets", target="test_user")
+        assert filename.startswith("tweets_test_user_")
+        assert filename.endswith(".json")
+
+        # Test search results filename
+        filename = generate_filename("search_results", query="Python test")
+        assert filename.startswith("search_results_")
+        assert "Python_test" in filename
+        assert filename.endswith(".json")
+
+        # Test profile filename
+        filename = generate_filename("profiles", target="@celebrity")
+        assert filename.startswith("profiles_celebrity_")  # @ should be stripped
+        assert filename.endswith(".json")
+
+    @patch("src.utils.data_storage.ensure_directory_exists")
+    @patch("builtins.open")
+    @patch("json.dump")
+    def test_save_tweets(self, mock_json_dump, mock_open, mock_ensure_dir):
+        """Test saving tweets with metadata"""
+        # Create sample tweets
+        tweets = [Tweet(id="123", text="Test tweet", author="test_user", timestamp="2024-01-01T10:00:00Z", likes=10)]
+
+        # Mock file operations
+        mock_file = Mock()
+        mock_open.return_value.__enter__.return_value = mock_file
+
+        # Test saving
+        result = save_tweets(tweets, target_user="test_user")
+
+        assert result is True
+        mock_ensure_dir.assert_called_once()
+        mock_open.assert_called_once()
+        mock_json_dump.assert_called_once()
+
+    @patch("src.utils.data_storage.ensure_directory_exists")
+    @patch("builtins.open")
+    @patch("json.dump")
+    def test_save_profiles(self, mock_json_dump, mock_open, mock_ensure_dir):
+        """Test saving user profiles"""
+        # Create sample profile
+        profiles = [
+            UserProfile(
+                username="test_user",
+                display_name="Test User",
+                bio="Test bio",
+                followers_count=1000,
+                following_count=500,
+            )
+        ]
+
+        # Mock file operations
+        mock_file = Mock()
+        mock_open.return_value.__enter__.return_value = mock_file
+
+        # Test saving
+        result = save_profiles(profiles, target_user="test_user")
+
+        assert result is True
+        mock_ensure_dir.assert_called_once()
+        mock_open.assert_called_once()
+        mock_json_dump.assert_called_once()
+
+    @patch("src.utils.data_storage.ensure_directory_exists")
+    @patch("builtins.open")
+    @patch("json.dump")
+    def test_save_search_results(self, mock_json_dump, mock_open, mock_ensure_dir):
+        """Test saving search results"""
+        # Create sample search result
+        search_result = SearchResult(
+            query="test query",
+            search_type="latest",
+            tweets=[
+                Tweet(id="search123", text="Search result tweet", author="author", timestamp="2024-01-01T12:00:00Z")
+            ],
+            total_results=1,
+        )
+
+        # Mock file operations
+        mock_file = Mock()
+        mock_open.return_value.__enter__.return_value = mock_file
+
+        # Test saving
+        result = save_search_results(search_result)
+
+        assert result is True
+        mock_ensure_dir.assert_called_once()
+        mock_open.assert_called_once()
+        mock_json_dump.assert_called_once()
+
+    @patch("src.utils.data_storage.JSON_DATA_DIR")
+    def test_list_json_files(self, mock_data_dir):
+        """Test listing JSON result files"""
+        # Mock directory exists and glob methods
+        mock_data_dir.exists.return_value = True
+
+        # Mock file list with stat() method for sorting
+        mock_file1 = MagicMock()
+        mock_file1.stat.return_value.st_mtime = 1640995200  # 2022-01-01
+        mock_file2 = MagicMock()
+        mock_file2.stat.return_value.st_mtime = 1641081600  # 2022-01-02
+
+        mock_files = [mock_file1, mock_file2]
+        mock_data_dir.glob.return_value = mock_files
+
+        # Test listing all files
+        files = list_json_files()
+        assert len(files) == 2
+        mock_data_dir.glob.assert_called_once_with("*.json")
+
+    @patch("src.utils.data_storage.JSON_DATA_DIR")
+    def test_list_json_files_no_directory(self, mock_data_dir):
+        """Test listing files when directory doesn't exist"""
+        mock_data_dir.exists.return_value = False
+
+        files = list_json_files()
+        assert files == []
+
+    def test_data_type_enum_simplified(self):
+        """Test simplified DataType enum values"""
+        assert DataType.JSON_DATA.value == "json_data"
+        assert DataType.COOKIES.value == "cookies"
+        assert DataType.SCREENSHOTS.value == "screenshots"
+        assert DataType.LOGS.value == "logs"
+
+    def test_data_serialization(self):
+        """Test data serialization for JSON storage"""
+        from src.utils.data_storage import _serialize_data
+
+        # Test Tweet serialization
+        tweet = Tweet(id="123", text="test", author="user", content_type=ContentType.TEXT)
+        serialized = _serialize_data(tweet)
+
+        assert isinstance(serialized, dict)
+        assert serialized["id"] == "123"
+        assert serialized["text"] == "test"
+        assert serialized["content_type"] == "text"  # Enum converted to value
+
+        # Test list serialization
+        tweets = [tweet]
+        serialized_list = _serialize_data(tweets)
+        assert isinstance(serialized_list, list)
+        assert len(serialized_list) == 1
+        assert serialized_list[0]["id"] == "123"
 
 
 if __name__ == "__main__":

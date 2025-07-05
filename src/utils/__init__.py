@@ -2,23 +2,32 @@
 Utility functions for X scraper - modularized package
 """
 
-# Logger utilities
+# Cookie management (used by x_scraper)
+from .cookies import CookieManager
+
+# Data storage utilities (used in tests)
+from .data_storage import (
+    save_json_data,
+    save_profiles,
+    save_tweets,
+)
+
+# Logging utilities (used in tests and x_scraper)
 from .logger import configure_logging, setup_file_logging
 
-# Selenium helper functions (used in tests)
+# Selenium helper functions (used in tests and x_scraper)
 from .selenium_helpers import (
     take_screenshot,
     wait_for_element,
 )
 
-# Text processing utilities (used in tests and potentially by x_scraper)
+# Text processing utilities (used in tests)
 from .text_processing import (
     clean_text,
     create_safe_filename,
     extract_urls_from_text,
     format_timestamp,
     is_valid_url,
-    parse_engagement_count,
 )
 
 # Tor utilities (used by x_scraper)
@@ -34,6 +43,7 @@ from .x_helpers import (
 )
 
 __all__ = [
+    "CookieManager",
     "clean_text",
     "configure_logging",
     "create_safe_filename",
@@ -41,8 +51,10 @@ __all__ = [
     "extract_urls_from_text",
     "format_timestamp",
     "is_valid_url",
-    "parse_engagement_count",
     "parse_x_url",
+    "save_json_data",
+    "save_profiles",
+    "save_tweets",
     "setup_file_logging",
     "take_screenshot",
     "validate_x_username",

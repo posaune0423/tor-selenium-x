@@ -3,7 +3,10 @@ FROM python:3.12-slim AS base
 
 # Auto-detect architecture
 ARG TARGETARCH
+ARG USER_ID=1000
+ARG GROUP_ID=1000
 RUN echo "Building for architecture: $TARGETARCH"
+RUN echo "Building with USER_ID: $USER_ID, GROUP_ID: $GROUP_ID"
 
 # Install system dependencies in single layer
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -57,7 +60,7 @@ WORKDIR /app
 
 # Copy and install Python dependencies (separate layer for caching)
 COPY pyproject.toml uv.lock ./
-RUN uv sync --frozen --no-editable
+RUN uv sync --frozen --no-editable --extra dev
 
 # Copy source code
 COPY src/ ./src/
@@ -82,12 +85,32 @@ RUN chmod +x /docker-entrypoint.sh
 # Create data directories with proper structure
 RUN mkdir -p /app/data/{screenshots,logs,coverage,scraping_results,cookies}
 
-# Create non-root user with consistent UIDs
-RUN groupadd -g 1000 appuser && \
-    useradd -m -u 1000 -g 1000 -s /bin/bash appuser && \
-    chown -R appuser:appuser /app /opt/torbrowser && \
+# Create non-root user with host-matching UIDs for file permission compatibility
+RUN set -e && \
+    # Check if group exists, create if not
+    if ! getent group ${GROUP_ID} >/dev/null 2>&1; then \
+        groupadd -g ${GROUP_ID} appuser; \
+    else \
+        GROUP_NAME=$(getent group ${GROUP_ID} | cut -d: -f1); \
+        echo "Using existing group: $GROUP_NAME (GID: ${GROUP_ID})"; \
+    fi && \
+    # Check if user exists, create if not
+    if ! getent passwd ${USER_ID} >/dev/null 2>&1; then \
+        useradd -m -u ${USER_ID} -g ${GROUP_ID} -s /bin/bash appuser; \
+    else \
+        USER_NAME=$(getent passwd ${USER_ID} | cut -d: -f1); \
+        echo "Using existing user: $USER_NAME (UID: ${USER_ID})"; \
+    fi && \
+    # Set ownership and permissions
+    chown -R ${USER_ID}:${GROUP_ID} /app /opt/torbrowser && \
     chmod -R 755 /app /opt/torbrowser && \
-    id debian-tor >/dev/null 2>&1 || (groupadd -r debian-tor && useradd -r -g debian-tor debian-tor) && \
+    # Ensure debian-tor user exists (should already exist from tor package)
+    if ! id debian-tor >/dev/null 2>&1; then \
+        echo "Creating debian-tor user"; \
+        groupadd -r debian-tor && useradd -r -g debian-tor debian-tor; \
+    else \
+        echo "debian-tor user already exists"; \
+    fi && \
     chown -R debian-tor:debian-tor /var/lib/tor && \
     chmod 700 /var/lib/tor
 

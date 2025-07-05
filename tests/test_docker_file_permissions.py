@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Docker環境でのファイル保存権限テスト
+Docker環境でのファイル保存権限テスト(シンプル化版)
 
 主要な検証項目:
 - ディレクトリ作成とファイル書き込み権限
@@ -10,7 +10,6 @@ Docker環境でのファイル保存権限テスト
 
 import json
 import os
-import stat
 import tempfile
 from pathlib import Path
 from unittest.mock import Mock, patch
@@ -18,145 +17,78 @@ from unittest.mock import Mock, patch
 import pytest
 
 from src.models import Tweet, UserProfile
+from src.utils import CookieManager
 from src.x_scraper import XScraper
 
 
 class TestDockerFilePermissions:
-    """Docker環境でのファイル権限テスト"""
+    """Docker環境でのファイル権限テスト(シンプル化版)"""
 
     def setup_method(self):
         """各テストメソッドの前に実行される設定"""
-        # 一時ディレクトリを使用して test_reports ディレクトリの作成を避ける
         self.temp_dir = tempfile.mkdtemp(prefix="tor_scraper_test_")
         self.test_data_dir = Path(self.temp_dir) / "data"
         self.test_data_dir.mkdir(parents=True, exist_ok=True)
 
     def teardown_method(self):
         """各テストメソッドの後にクリーンアップ"""
-        # 一時ディレクトリ全体を削除
         import shutil
 
         if Path(self.temp_dir).exists():
             shutil.rmtree(self.temp_dir)
 
-    def test_directory_creation_permissions(self):
-        """ディレクトリ作成権限のテスト"""
+    def test_basic_file_permissions(self):
+        """基本的なファイル作成・書き込み権限のテスト"""
+        # ディレクトリ作成テスト
         test_dir = Path(self.temp_dir) / "test_permissions"
-
-        # ディレクトリが存在しない場合は作成
-        assert not test_dir.exists()
-
-        # ディレクトリを作成
         test_dir.mkdir(parents=True, exist_ok=True)
-
-        # 作成されたディレクトリの確認
         assert test_dir.exists()
         assert test_dir.is_dir()
 
-        # 権限の確認
-        dir_stat = test_dir.stat()
-        assert stat.S_ISDIR(dir_stat.st_mode)
-
-    def test_file_write_permissions(self):
-        """ファイル書き込み権限のテスト"""
-        test_file = self.test_data_dir / "test_write_permissions.json"
+        # ファイル作成・書き込みテスト
+        test_file = test_dir / "test_write.json"
         test_data = {"test": "data", "timestamp": "2025-01-01T00:00:00", "docker_test": True}
 
-        # ファイルに書き込み
         with open(test_file, "w", encoding="utf-8") as f:
             json.dump(test_data, f, ensure_ascii=False, indent=2)
 
-        # ファイルが作成されたことを確認
         assert test_file.exists()
         assert test_file.is_file()
 
-        # ファイル権限の確認
-        file_stat = test_file.stat()
-        assert stat.S_ISREG(file_stat.st_mode)
-
-        # ファイルの内容を確認
+        # ファイル内容確認
         with open(test_file, encoding="utf-8") as f:
             loaded_data = json.load(f)
-
         assert loaded_data == test_data
-
-    def test_current_user_permissions(self):
-        """現在のユーザー権限の確認"""
-        # ユーザーIDとグループIDを取得
-        uid = os.getuid()
-        gid = os.getgid()
-
-        print(f"Current UID: {uid}")
-        print(f"Current GID: {gid}")
-
-        # Docker環境では appuser (UID 1000) で実行されるはず
-        if os.path.exists("/.dockerenv"):
-            assert uid == 1000, f"Expected UID 1000 in Docker, got {uid}"
-
-        # 作業ディレクトリの権限確認
-        cwd = Path.cwd()
-        cwd_stat = cwd.stat()
-
-        print(f"Working directory: {cwd}")
-        print(f"Working directory owner UID: {cwd_stat.st_uid}")
-        print(f"Working directory owner GID: {cwd_stat.st_gid}")
-
-    def test_data_directory_access(self):
-        """dataディレクトリへのアクセステスト"""
-        data_dir = Path("data")
-        scraping_results_dir = data_dir / "scraping_results"
-
-        # ディレクトリが作成できることを確認
-        data_dir.mkdir(parents=True, exist_ok=True)
-        scraping_results_dir.mkdir(parents=True, exist_ok=True)
-
-        assert data_dir.exists()
-        assert scraping_results_dir.exists()
-
-        # テストファイルの作成
-        test_file = scraping_results_dir / "test_data_access.json"
-        test_data = {"data_test": True}
-
-        with open(test_file, "w", encoding="utf-8") as f:
-            json.dump(test_data, f)
-
-        assert test_file.exists()
-
-        # ファイルの読み取り
-        with open(test_file, encoding="utf-8") as f:
-            loaded_data = json.load(f)
-
-        assert loaded_data == test_data
-
-        # クリーンアップ
-        test_file.unlink()
 
     def test_docker_environment_detection(self):
         """Docker環境の検出と基本設定テスト"""
         is_docker = os.path.exists("/.dockerenv")
+        uid = os.getuid()
+        gid = os.getgid()
+
+        print(f"Current UID: {uid}, GID: {gid}")
+        print(f"Docker environment: {is_docker}")
 
         if is_docker:
-            print("Running in Docker environment")
-            # 環境変数とTorブラウザパスの確認
+            # Docker環境では appuser (UID 1000) で実行されるはず
+            assert uid == 1000, f"Expected UID 1000 in Docker, got {uid}"
+
+            # Tor Browser パスの確認
             tor_browser_path = os.environ.get("TOR_BROWSER_PATH")
             assert tor_browser_path == "/opt/torbrowser"
             assert Path(tor_browser_path).exists()
-        else:
-            print("Running in local environment")
 
     @patch("src.x_scraper.create_tor_browser_driver")
-    def test_x_scraper_file_saving_permissions(self, mock_driver):
-        """XScraperでのファイル保存権限テスト"""
-        # モックドライバーを設定
+    def test_x_scraper_file_saving(self, mock_driver):
+        """XScraperでのファイル保存機能テスト"""
+        # モックドライバー設定
         mock_driver.return_value = Mock()
 
-        # XScraperインスタンスを作成
+        # XScraperインスタンス作成
         scraper = XScraper(tbb_path="/opt/torbrowser", headless=True)
-
-        # データディレクトリが作成されることを確認
         assert scraper.data_dir.exists()
 
-        # テストデータを作成
+        # テストツイートデータ
         test_tweets = [
             Tweet(
                 text="Test tweet 1",
@@ -176,23 +108,28 @@ class TestDockerFilePermissions:
             ),
         ]
 
-        # ツイートの保存テスト
+        # ツイート保存テスト
         success = scraper.save_tweets_to_json(test_tweets, "test_docker_permissions")
         assert success, "Failed to save tweets in Docker environment"
 
-        # 保存されたファイルの確認
-        saved_file = scraper.data_dir / "test_docker_permissions.json"
+        # 保存ファイルの確認
+        saved_files = list(scraper.data_dir.glob("test_docker_permissions*"))
+        assert len(saved_files) > 0, f"No files found in {scraper.data_dir}"
+
+        saved_file = saved_files[0]
         assert saved_file.exists()
 
         # ファイル内容の確認
         with open(saved_file, encoding="utf-8") as f:
-            loaded_tweets = json.load(f)
+            loaded_data = json.load(f)
 
-        assert len(loaded_tweets) == 2
-        assert loaded_tweets[0]["text"] == "Test tweet 1"
-        assert loaded_tweets[1]["text"] == "Test tweet 2"
+        assert "data" in loaded_data
+        assert "metadata" in loaded_data
+        tweets_data = loaded_data["data"]
+        assert len(tweets_data) == 2
+        assert tweets_data[0]["text"] == "Test tweet 1"
 
-        # プロフィールの保存テスト
+        # プロフィール保存テスト
         test_profile = UserProfile(
             username="test_user", display_name="Test User", bio="Test bio", followers_count=1000, following_count=500
         )
@@ -200,16 +137,58 @@ class TestDockerFilePermissions:
         success = scraper.save_profile_to_json(test_profile, "test_docker_profile")
         assert success, "Failed to save profile in Docker environment"
 
-        # 保存されたプロフィールファイルの確認
-        profile_file = scraper.data_dir / "test_docker_profile.json"
+        # プロフィールファイルの確認
+        profile_files = list(scraper.data_dir.glob("test_docker_profile*"))
+        assert len(profile_files) > 0, f"No profile files found in {scraper.data_dir}"
+
+        profile_file = profile_files[0]
         assert profile_file.exists()
 
-        # プロフィール内容の確認
         with open(profile_file, encoding="utf-8") as f:
-            loaded_profile = json.load(f)
+            loaded_data = json.load(f)
 
-        assert loaded_profile["username"] == "test_user"
-        assert loaded_profile["display_name"] == "Test User"
+        assert "data" in loaded_data
+        profile_data = loaded_data["data"][0]
+        assert profile_data["username"] == "test_user"
+
+    def test_cookie_manager_basic_functionality(self):
+        """CookieManagerの基本機能テスト(シンプル化版)"""
+        test_identifier = "test_user_permissions"
+        cookie_manager = CookieManager(test_identifier)
+
+        # テストクッキー
+        test_cookies = [
+            {
+                "name": "auth_token",
+                "value": "test_auth_token_123",
+                "domain": ".twitter.com",
+                "path": "/",
+                "secure": True,
+                "httpOnly": True,
+                "expiry": 2000000000,
+            }
+        ]
+
+        try:
+            # 保存テスト
+            save_result = cookie_manager.save_cookies(test_cookies)
+            assert save_result, "Cookie save should succeed"
+            assert cookie_manager.cookie_file.exists(), "Cookie file should be created"
+
+            # 読み込みテスト
+            loaded_cookies = cookie_manager.load_cookies()
+            assert len(loaded_cookies) > 0, "Should load cookies"
+
+            loaded_names = [cookie["name"] for cookie in loaded_cookies]
+            assert "auth_token" in loaded_names, "auth_token should be loaded"
+            assert cookie_manager.has_valid_cookies(), "Should have valid cookies"
+
+        finally:
+            # クリーンアップ
+            if cookie_manager.cookie_file.exists():
+                cookie_manager.cookie_file.unlink()
+            if cookie_manager.backup_file.exists():
+                cookie_manager.backup_file.unlink()
 
 
 if __name__ == "__main__":

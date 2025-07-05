@@ -3,6 +3,7 @@
 Project-wide constants for X scraper
 """
 
+import os
 from pathlib import Path
 from typing import Final
 
@@ -12,7 +13,7 @@ from typing import Final
 
 # X (Twitter) URLs
 TWITTER_LOGIN_URL: Final[str] = "https://x.com/i/flow/login"
-TWITTER_HOME_URL: Final[str] = "https://twitter.com"
+TWITTER_HOME_URL: Final[str] = "https://x.com"
 
 # IP checking services
 IP_CHECK_SERVICES: Final[list[str]] = [
@@ -47,18 +48,64 @@ SCREENSHOT_DELAY: Final[int] = 1
 # Path Constants
 # ======================================================================
 
-# Default Tor Browser paths
-DEFAULT_TBB_PATH_MACOS: Final[str] = "/Applications/Tor Browser.app/Contents/MacOS/tor-browser"
-DEFAULT_TBB_PATH_DOCKER: Final[str] = "/opt/torbrowser"
+
+# Docker detection
+def is_docker_environment() -> bool:
+    """Check if running in Docker environment"""
+    return os.path.exists("/.dockerenv") or os.environ.get("DOCKER_ENV") == "true"
+
 
 # Docker detection file
 DOCKER_ENV_FILE: Final[str] = "/.dockerenv"
 
-# Data directories
-DATA_DIR: Final[Path] = Path("data")
+# Default Tor Browser paths
+DEFAULT_TBB_PATH_MACOS: Final[str] = "/Applications/Tor Browser.app/Contents/MacOS/tor-browser"
+DEFAULT_TBB_PATH_DOCKER: Final[str] = "/opt/torbrowser"
+
+
+# Base data directory - unified for Docker and local environments
+def get_data_dir() -> Path:
+    """Get appropriate data directory based on environment"""
+    if is_docker_environment():
+        # In Docker, use /app/data which is mounted from host's ./data
+        return Path("/app/data")
+    else:
+        # Local development
+        return Path("data")
+
+
+DATA_DIR: Final[Path] = get_data_dir()
+
+
+# Ensure data directories exist - シンプル化版
+def ensure_data_directories() -> None:
+    """Ensure all required data directories exist - シンプル化版"""
+    directories = [
+        DATA_DIR,
+        SCRAPING_RESULTS_DIR,  # 全てのJSONデータ
+        SCREENSHOTS_DIR,  # スクリーンショット
+        LOGS_DIR,  # ログファイル
+        COOKIES_DIR,  # クッキー
+    ]
+
+    import contextlib
+
+    for directory in directories:
+        with contextlib.suppress(Exception):
+            directory.mkdir(parents=True, exist_ok=True)
+
+
+# Data directories with unified paths - シンプル化版
 SCRAPING_RESULTS_DIR: Final[Path] = DATA_DIR / "scraping_results"
 SCREENSHOTS_DIR: Final[Path] = DATA_DIR / "screenshots"
 LOGS_DIR: Final[Path] = DATA_DIR / "logs"
+COOKIES_DIR: Final[Path] = DATA_DIR / "cookies"
+
+# シンプル化されたディレクトリ構造(詳細な分類は削除)
+JSON_DATA_DIR: Final[Path] = SCRAPING_RESULTS_DIR  # 全てのJSONデータを統一保存
+
+# Initialize directories on import
+ensure_data_directories()
 
 # ======================================================================
 # Scraping Constants
@@ -74,8 +121,10 @@ PNG_EXTENSION: Final[str] = ".png"
 HTML_EXTENSION: Final[str] = ".html"
 TXT_EXTENSION: Final[str] = ".txt"
 
-# Cookie file name
-COOKIE_FILE_NAME: Final[str] = "x_cookies.json"
+# Cookie management
+DEFAULT_COOKIE_FILE_NAME: Final[str] = "session_cookies.json"
+COOKIE_BACKUP_SUFFIX: Final[str] = "_backup"
+COOKIE_EXPIRY_BUFFER_MINUTES: Final[int] = 5
 
 # ======================================================================
 # Browser Configuration
@@ -96,72 +145,7 @@ DEFAULT_CONTROL_PORT: Final[int] = 9151
 # ======================================================================
 # Debug and Logging
 # ======================================================================
-
-# Log file name patterns
-LOG_FILE_PATTERN: Final[str] = "scraper_{time}.log"
-DEBUG_SCREENSHOT_PREFIX: Final[str] = "debug_"
-
-# Debug contexts
-DEBUG_CONTEXTS: Final[dict[str, str]] = {
-    "INITIAL_LOGIN": "initial_login_page",
-    "AFTER_USERNAME": "after_username_input",
-    "AFTER_PASSWORD": "after_password_input",
-    "CAPTCHA_DETECTED": "captcha_detected",
-    "LOGIN_SUCCESS": "login_success",
-    "LOGIN_FAILED": "login_failed",
-}
-
-# ======================================================================
-# Element Selectors (commonly used)
-# ======================================================================
-
-# Login form selectors
-LOGIN_SELECTORS: Final[dict[str, list[str]]] = {
-    "username": [
-        'input[name="text"]',
-        'input[autocomplete="username"]',
-        'input[data-testid="ocfEnterTextTextInput"]',
-        'input[placeholder*="phone"]',
-        'input[placeholder*="email"]',
-        'input[placeholder*="username"]',
-    ],
-    "password": [
-        'input[name="password"]',
-        'input[type="password"]',
-        'input[data-testid="ocfEnterTextTextInput"]',
-    ],
-    "login_button": [
-        'div[data-testid="LoginForm_Login_Button"]',
-        'button[type="submit"]',
-        'div[role="button"]:has-text("Log in")',
-        'div[role="button"]:has-text("Next")',
-    ],
-}
-
-# ======================================================================
-# Error Messages and Patterns
-# ======================================================================
-
-# Common error patterns
-ERROR_PATTERNS: Final[dict[str, list[str]]] = {
-    "captcha": [
-        "recaptcha",
-        "arkose",
-        "funcaptcha",
-        "hcaptcha",
-    ],
-    "login_failed": [
-        "wrong password",
-        "incorrect password",
-        "authentication failed",
-        "login failed",
-    ],
-    "rate_limited": [
-        "rate limit",
-        "too many requests",
-        "try again later",
-    ],
-}
+# (Unused constants removed for cleaner codebase)
 
 # ======================================================================
 # Tor Verification
