@@ -1,0 +1,92 @@
+services:
+  tor-scraper-prod:
+    build:
+      context: ..
+      dockerfile: docker/production/Dockerfile
+      args:
+        - USER_ID=${USER_ID:-1000}
+        - GROUP_ID=${GROUP_ID:-1000}
+    container_name: tor-selenium-prod
+    restart: unless-stopped
+
+    # Railway用環境変数
+    environment:
+      - PYTHONUNBUFFERED=1
+      - PYTHONPATH=/app
+      - TBB_PATH=/opt/torbrowser/tor-browser
+      - DISPLAY=:99
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - PORT=${PORT:-8000}
+      - USER_ID=${USER_ID:-1000}
+      - GROUP_ID=${GROUP_ID:-1000}
+
+      # tbselenium設定
+      - TBSELENIUM_TBB_PATH=/opt/torbrowser/tor-browser
+
+      # 本番環境設定
+      - NODE_ENV=production
+      - ENVIRONMENT=production
+
+      # X credentials (from environment variables - DO NOT USE .env in production)
+      - X_EMAIL=${X_EMAIL}
+      - X_PASSWORD=${X_PASSWORD}
+      - X_USERNAME=${X_USERNAME}
+
+      # Configuration
+      - TOR_BROWSER_PATH=${TOR_BROWSER_PATH:-/opt/torbrowser/tor-browser}
+      - DEBUG=${DEBUG:-false}
+
+    # 標準入力対応（2FA用） - 本番環境でも対応
+    stdin_open: true
+    tty: true
+
+    # 本番環境では.envファイルを使用しない - 環境変数を直接設定
+    # env_file:
+    #   - ../.env  # 本番環境では使用しない
+
+    # Railway等のホスティングサービス用ポート設定
+    ports:
+      - "${PORT:-8000}:${PORT:-8000}"
+
+    # 本番環境用リソース制限（Railway制限に合わせて調整）
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+          cpus: '0.5'
+        reservations:
+          memory: 512M
+          cpus: '0.25'
+
+    # ボリューム（本番では最小限）
+    volumes:
+      - tor-scraper-data:/app/data
+
+    # ヘルスチェック
+    healthcheck:
+      test: ["CMD", "python", "-c", "import tbselenium; print('OK')"]
+      interval: 60s
+      timeout: 30s
+      retries: 3
+      start_period: 120s
+
+    # セキュリティ設定
+    security_opt:
+      - no-new-privileges:true
+
+    # ログ設定
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+# 永続化ボリューム
+volumes:
+  tor-scraper-data:
+    driver: local
+
+# ネットワーク設定
+networks:
+  default:
+    driver: bridge

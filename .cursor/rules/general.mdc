@@ -1,0 +1,244 @@
+---
+description:
+globs: *.py
+alwaysApply: false
+---
+# tor-selenium-x プロジェクト Cursor Rules
+
+## 開発原則
+
+- **開発において感情は関係ありません。忖度せずよりよいsystemを開発することを第一原則に回答を行って下さい！**
+- **Always respond in Japanese, or English.**
+- **シンプルで理解しやすい関数名を使用してください**
+- **実用的で保守性の高いコードを重視してください**
+- **早期returnを使ったりwith, 例外処理など本筋のロジックと関係のない処理を含むものはhelper関数などに切り出してmain logicをきれいに保って下さい**
+- **一つのclassに関数を考えなしにどんどん追加していかないで下さい。そのclassの責務を deep think しなるべくsimpleかつ谷津の責務にとどめ、別の概念によってまとめられるものは別のclassやファイルに記述して下さい。**
+
+## プロジェクト概要
+
+X (Twitter) scraper using Tor Browser with tbselenium for privacy and reliability.
+
+- **Python 3.12+** ベースのプロジェクト
+- **Docker** 対応（development/production環境分離）
+- **Tor Browser + Selenium** でのプライベートスクレイピング
+- **Type Safety** を重視した設計
+
+## プロジェクト構造
+
+```
+tor-selenium-x/
+├── src/                    # メインソースコード
+│   ├── __init__.py
+│   ├── main.py            # エントリーポイント
+│   ├── x_scraper.py       # メインスクレーパークラス
+│   ├── models.py          # データモデル
+│   └── utils/             # ユーティリティパッケージ
+│       ├── __init__.py
+│       ├── logger.py         # ログ設定
+│       ├── selenium_helpers.py
+│       ├── human_simulation.py
+│       ├── anti_detection.py
+│       ├── cookies.py
+│       ├── text_processing.py
+│       ├── x_helpers.py
+│       ├── selectors.py
+│       └── decorators.py
+├── tests/                  # テストファイル
+├── docker/                 # Docker設定
+│   ├── development/
+│   └── production/
+├── data/                  # データ・ログ出力
+├── pyproject.toml         # プロジェクト設定
+├── uv.lock               # 依存関係ロック
+└── Makefile              # 開発コマンド
+```
+
+## 技術スタック
+
+### 言語・フレームワーク
+- **Python 3.12+** (型ヒント必須)
+- **UV** パッケージマネージャー
+- **Docker** (development/production環境分離)
+
+### ライブラリ
+- **tbselenium** - Tor Browser Selenium
+- **selenium** - WebDriver
+- **stem** - Tor制御
+- **loguru** - ログ出力
+- **requests** - HTTP クライアント
+- **python-dotenv** - 環境変数管理
+
+### 開発ツール
+- **Ruff** - コードフォーマット & リンター（**mypyは使用しない**）
+- **Pylance** - 型チェック
+- **pytest** - テストフレームワーク
+- **pytest-cov** - カバレッジ測定
+
+## コーディング規約
+
+### 基本原則
+- **型ヒントは必須** - すべての関数に引数・戻り値の型を明記
+- **関数名はシンプルで理解しやすく** - 略語は避ける
+- **docstrings必須** - すべてのpublic関数にGoogle styleで記載
+- **コメントは半角括弧()のみ使用**
+
+### 型安全性
+```python
+from typing import Final, Optional, Union
+from collections.abc import Sequence
+
+# 型ヒント例
+def process_tweets(
+    tweets: list[dict[str, str]],
+    max_count: int = 10,
+    filter_verified: bool = False
+) -> list[dict[str, str]]:
+    """ツイートデータを処理する。
+
+    Args:
+        tweets: ツイートデータのリスト
+        max_count: 最大取得件数
+        filter_verified: 認証済みアカウントのみフィルタ
+
+    Returns:
+        処理済みツイートのリスト
+    """
+    pass
+```
+
+### ログ設定
+- **logger設定はutils/logger.pyで一元管理**
+- **main.pyでのログ設定は避ける**
+- **loguru使用** - 構造化ログ推奨
+
+```python
+from utils.logger import setup_logger
+
+logger = setup_logger()
+logger.info("スクレイピング開始")
+```
+
+### エラーハンドリング
+- **具体的な例外クラスを使用**
+- **try-except で適切にハンドリング**
+- **ログ出力必須**
+
+```python
+try:
+    result = scrape_tweets()
+except WebDriverException as e:
+    logger.error(f"Webdriver error: {e}")
+    raise
+except Exception as e:
+    logger.error(f"Unexpected error: {e}")
+    raise
+```
+
+## 開発コマンド
+
+### Docker開発環境
+```bash
+make dev                   # 開発環境起動
+make test                  # テスト実行
+make build                 # イメージビルド
+make logs                  # ログ確認
+make clean                 # 環境クリーンアップ
+```
+
+### ローカル開発
+```bash
+make install               # 依存関係インストール
+make format               # コードフォーマット (Ruff)
+make lint                 # リンター実行 (Ruff)
+make fix                  # 自動修正 (Ruff)
+make check                # lint + test実行
+```
+
+### 必須チェック
+**make dev が正常に動作することを確認してください！**
+
+## 実装パターン
+
+### クラス設計
+```python
+from typing import Optional
+from dataclasses import dataclass
+
+@dataclass
+class Tweet:
+    """ツイートデータモデル"""
+    id: str
+    text: str
+    author: str
+    timestamp: str
+    likes: int = 0
+    retweets: int = 0
+```
+
+### 設定管理
+```python
+from pathlib import Path
+from typing import Final
+
+# 定数定義
+DEFAULT_SOCKS_PORT: Final[int] = 9150
+DEFAULT_CONTROL_PORT: Final[int] = 9151
+TOR_BROWSER_PATH: Final[Path] = Path("/opt/torbrowser/tor-browser")
+```
+
+### 非同期処理
+```python
+import asyncio
+from typing import AsyncGenerator
+
+async def scrape_multiple_accounts(
+    accounts: list[str]
+) -> AsyncGenerator[dict[str, str], None]:
+    """複数アカウントを並列スクレイピング"""
+    tasks = [scrape_account(account) for account in accounts]
+    results = await asyncio.gather(*tasks)
+    for result in results:
+        yield result
+```
+
+## 禁止事項
+
+### 使用禁止ツール
+- **mypy** - Ruff + Pylance使用
+- **JavaScript/TypeScript** - Pythonプロジェクトなのでサンプル不要
+
+### 禁止パターン
+- **scripts/ディレクトリでのソースコード配置** - src/配下に配置
+- **main.pyでのlogger設定** - utils/logger.pyで一元管理
+- **長い関数名・略語** - シンプルで理解しやすい名前を使用
+
+## 特別な要件
+
+### Docker環境
+- **development/** と **production/** で環境分離
+- **Tor Browser + Selenium** の設定最適化
+- **メモリ効率** を重視した実装
+
+### セキュリティ
+- **Tor経由でのアクセス** - プライバシー保護
+- **Bot検知回避** - human_simulation.py使用
+- **レート制限** - 適切な待機時間設定
+
+### テスト
+- **pytest** 使用
+- **カバレッジ80%以上** 目標
+- **integration/unit** テスト分離
+
+## 新機能実装時の注意
+
+1. **型ヒント必須** - 関数の引数・戻り値すべてに型を明記
+2. **docstrings必須** - Google styleで記載
+3. **テスト作成** - 新機能には必ずテストを追加
+4. **make dev確認** - 実装後は必ず動作確認
+5. **ログ出力** - 重要な処理にはログを追加
+
+## 参考リンク
+
+- [pyproject.toml](mdc:pyproject.toml) - プロジェクト設定
+- [Makefile](mdc:Makefile) - 開発コマンド
+- [README.md](mdc:README.md) - プロジェクト詳細

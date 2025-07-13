@@ -1,240 +1,313 @@
-# tor-selenium-x
+# Tor Selenium X
 
-最もシンプルで再現性の高いTor + Selenium + Docker構成によるウェブスクレーピングプロジェクト
+[![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
+[![Docker](https://img.shields.io/badge/docker-ready-green.svg)](https://www.docker.com/)
 
-## 🎯 特徴
+X (Twitter) スクレイパー - Tor Browser と tbselenium を使用してプライバシーと信頼性を確保
 
-- **シンプル**: 無駄のない最小構成
-- **再現性**: Dockerによる環境の完全一致
-- **匿名性**: Tor経由でのアクセス
-- **DuckDuckGo**: プライバシー重視の検索エンジンを使用
-- **モダンな開発環境**: UV、Python 3.12、最新のSelenium
+## 特徴
 
-参考記事:
-- [PythonでSeleniumとTorの合わせ技](https://qiita.com/kawagoe6884/items/381a938dd3d8744f29d4)
-- [【悪用禁止】Torで匿名性を確保しながらSeleniumでスクレイピングする](https://zenn.dev/harurow/articles/7b845931350cb8)
+- **プライバシー第一**: Tor Browser を使用した匿名スクレイピング
+- **安定したアーキテクチャ**: tbselenium ライブラリで構築
+- **Docker 対応**: 開発環境と本番環境を提供
+- **型安全**: 完全な型ヒントと包括的なテスト
+- **ログイン機能**: X (Twitter) への認証対応
+- **データ管理**: 構造化されたデータ保存とセッション管理
+- **検出回避**: 人間らしい動作シミュレーションとBot検知対策
 
-## 🚀 クイックスタート
+## クイックスタート
 
-### 必要な環境
-
-- Docker & Docker Compose
-- Make (オプション)
-
-### 実行
+### Docker 使用（推奨）
 
 ```bash
 # リポジトリをクローン
-git clone <repository-url>
+git clone https://github.com/your-username/tor-selenium-x.git
 cd tor-selenium-x
 
-# Docker経由で実行
-make run
-
-# または
-docker-compose up --build tor-scraper
-```
-
-これだけで、Tor経由でDuckDuckGoにアクセスし、匿名でウェブスクレーピングが実行されます。
-
-## 📦 コマンド一覧
-
-```bash
-# ヘルプ表示
-make help
-
-# Tor Scraperを実行
-make run
-
-# 開発モードで実行
+# 開発環境を開始（2FA入力対応）
 make dev
 
-# コンテナ内でシェルを開く
-make shell
-
-# ログを確認
+# ログを表示
 make logs
-
-# 停止
-make stop
-
-# クリーンアップ
-make clean
 ```
-
-## 🏗️ プロジェクト構成
-
-```
-tor-selenium-x/
-├── src/
-│   ├── __init__.py
-│   ├── main.py            # メインエントリーポイント
-│   └── tor_scraper.py     # Torスクレーパークラス
-├── tests/
-│   ├── __init__.py
-│   └── test_tor_scraper.py
-├── docker/
-│   ├── Dockerfile         # Docker設定
-│   ├── docker-compose.yml # Docker Compose設定
-│   └── docker-entrypoint.sh # コンテナ起動スクリプト
-├── scripts/
-│   └── setup.sh          # セットアップスクリプト
-├── .vscode/
-│   └── settings.json     # VS Code設定
-├── pyproject.toml        # Python依存関係・ツール設定
-├── uv.lock              # 依存関係ロックファイル
-├── Makefile             # 開発用コマンド
-└── README.md
-```
-
-## 🛠️ 技術スタック
-
-- **Python 3.12**: 最新のPython
-- **UV**: 高速なPythonパッケージマネージャー
-- **Selenium 4.15+**: ウェブブラウザ自動化
-- **Tor**: 匿名ネットワーク
-- **Chromium/Firefox**: ヘッドレスブラウザ
-- **Docker**: コンテナ化
-- **Ruff**: 統合開発ツール（フォーマッター + リンター）
-- **Pylance**: 型チェック・IntelliSense
-
-## 🧪 開発環境セットアップ
 
 ### ローカル開発
 
 ```bash
-# UV環境のセットアップ
-uv init --python 3.12
-uv sync --all-extras
+# 依存関係をインストール
+uv sync
 
-# 仮想環境の有効化
-source .venv/bin/activate
-
-# 開発用コマンド
-make install   # 依存関係インストール
-make format    # コードフォーマット (Ruff)
-make lint      # リンター実行 (Ruff)
-make fix       # 自動修正 (Ruff)
-make test      # テスト実行 (pytest)
-make check     # lint + test
+# スクレイパーを実行
+uv run python src/main.py
 ```
 
-### VS Code設定
+## 使用方法
 
-プロジェクトには以下が設定済み：
-- **Ruff**: 統合フォーマッター・リンター・インポート整理
-- **Pylance**: 型チェック・IntelliSense
-- **pytest**: テスト実行
-
-必要な拡張機能（推奨）：
-- Python (`ms-python.python`)
-- Pylance (`ms-python.pylance`)
-- Ruff (`charliermarsh.ruff`)
-
-## 🔧 カスタマイズ
-
-### 検索クエリの変更
-
-`src/main.py`でメインロジックを変更できます：
+### 基本的なスクレイピング
 
 ```python
-# DuckDuckGoで検索
-scraper.search_duckduckgo("Your search query here")
+from src.x_scraper import XScraper
+
+# スクレイパーを初期化
+scraper = XScraper(
+    tbb_path="/opt/torbrowser",
+    headless=True,
+    socks_port=9150,  # 標準化されたポート
+    control_port=9151,
+)
+
+try:
+    # 開始と接続
+    scraper.start()
+    scraper.navigate_to_x()
+    
+    # ツイートを検索
+    tweets = scraper.search_tweets("Python programming", max_tweets=10)
+    
+    # ユーザープロフィールを取得
+    profile = scraper.get_user_profile("username")
+    
+    # データを保存
+    scraper.save_tweets_to_json(tweets, "tweets")
+    scraper.save_profile_to_json(profile, "profile")
+    
+finally:
+    scraper.close()
 ```
 
-### 他のサイトへのアクセス
-
-`src/tor_scraper.py`の`TorScraper`クラスにメソッドを追加してカスタマイズ可能：
+### ログイン機能付きスクレイピング
 
 ```python
-def visit_site(self, url: str) -> None:
-    """任意のサイトにアクセス"""
-    self.driver.get(url)
-    # スクレーピングロジック
+from src.x_scraper import XScraper
+
+# スクレイパーを初期化（認証情報は環境変数から自動取得）
+scraper = XScraper()
+
+try:
+    # 開始と接続
+    scraper.start()
+    
+    # X にログイン（2FA 対応）
+    if scraper.login():
+        print("ログイン成功！")
+        
+        # 認証が必要な機能を使用
+        tweets = scraper.search_tweets("限定公開アカウント", max_tweets=10)
+        
+    else:
+        print("ログインに失敗しました")
+        
+finally:
+    scraper.close()
 ```
 
-## 🐳 Docker環境
+## プロジェクト構造
 
-### 設定詳細
+```
+src/
+├── main.py              # エントリーポイント
+├── x_scraper.py         # メインスクレイパークラス
+├── models.py            # データモデル
+├── constants.py         # 定数定義
+└── utils/               # ユーティリティパッケージ
+    ├── __init__.py      # パッケージ初期化と全エクスポート
+    ├── logger.py        # ログ設定
+    ├── selenium_helpers.py  # Selenium ヘルパー関数
+    ├── tor_helpers.py   # Tor ブラウザ初期化と接続確認
+    ├── human_simulation.py # 人間らしい動作シミュレーション
+    ├── cookies.py       # クッキー管理
+    ├── data_storage.py  # データ保存ユーティリティ
+    ├── text_processing.py # テキスト処理ユーティリティ
+    ├── x_helpers.py     # X (Twitter) 固有ヘルパー
+    ├── anti_detection.py # 検出回避機能
+    ├── selectors.py     # 要素セレクターユーティリティ
+    └── decorators.py    # ユーティリティデコレーター
 
-- **ベースイメージ**: Python 3.12-slim
-- **Tor**: SocksPort 9050, ControlPort 9051
-- **Chrome**: Stable版 + webdriver-manager
-- **UV**: 依存関係管理
+docker/
+├── development/         # 開発環境
+└── production/          # 本番環境
 
-### Docker コマンド
+data/                    # データ出力ディレクトリ（自動作成）
+├── scraping_results/    # スクレイピング結果
+├── screenshots/         # デバッグ用スクリーンショット
+├── logs/               # ログファイル
+├── cookies/            # セッションクッキー
+└── coverage/           # テストカバレッジ
+```
+
+## コマンド
+
+### 開発コマンド
 
 ```bash
-# ビルド
-docker build -f docker/Dockerfile -t tor-selenium-x .
+# 開発環境
+make dev                # 開発モードで実行（2FA入力対応）
+make dev-rebuild        # 強制リビルドして実行
+make dev-background     # バックグラウンドで実行
+make test-docker        # Docker環境でテストを実行
+make test-permissions   # Docker権限テストを実行
 
-# 実行
-docker run --rm tor-selenium-x
+# ローカル開発
+make test              # テストを実行
+make lint              # コードリンティング
+make format            # コードフォーマット
+make fix               # 自動修正
+make check             # リント + テスト
 
-# 開発モード
-docker run --rm -v $(pwd)/src:/app/src tor-selenium-x
+# データ管理
+make clean-data        # データディレクトリをクリア
+make reset-data        # データディレクトリを再作成
 ```
 
-## 📊 動作確認
-
-実行すると以下の流れでスクレーピングが行われます：
-
-1. 🚀 Torサービス起動
-2. 🔍 Tor接続確認 (httpbin.org)
-3. 🌐 匿名IPアドレス表示
-4. 🦆 DuckDuckGoで検索実行
-5. 📝 検索結果の取得・表示
-
-## 🧪 テスト
+### 本番コマンド
 
 ```bash
-# 全テスト実行
-uv run pytest
-
-# カバレッジ付きテスト
-uv run pytest --cov=src --cov-report=html
-
-# 特定のテスト
-uv run pytest tests/test_tor_scraper.py::test_specific_function
+make build-prod        # 本番用イメージをビルド
+make run-prod          # 本番環境で実行
+make prod              # ビルド + 実行（エイリアス）
 ```
 
-## 🤝 トラブルシューティング
+## 設定
+
+### 環境変数
+
+`.env` ファイルをプロジェクトルートに作成：
+
+```env
+# X (Twitter) スクレイパー設定
+# Tor Browser 設定
+TOR_BROWSER_PATH=/Applications/Tor Browser.app
+# プラットフォーム別の例:
+# Linux: TOR_BROWSER_PATH=/opt/torbrowser
+# macOS: TOR_BROWSER_PATH=/Applications/Tor Browser.app
+# Docker: TOR_BROWSER_PATH=/opt/torbrowser
+
+# X (Twitter) ログイン認証情報（オプション）
+# ログイン機能を使用する場合のみ設定
+X_EMAIL=your-email@example.com
+X_PASSWORD=your-password
+X_USERNAME=your-username
+
+# ログ設定（オプション）
+LOG_LEVEL=INFO
+# オプション: DEBUG, INFO, WARNING, ERROR, CRITICAL
+
+# スクレイパー設定（オプション）
+HEADLESS=true
+USE_STEM=false
+SOCKS_PORT=9150    # 標準化されたポート
+CONTROL_PORT=9151  # 標準化されたポート
+```
+
+### 複数アカウント設定
+
+JSON形式での複数アカウント設定：
+
+```env
+# 複数アカウント設定（JSON形式）
+X_ACCOUNTS_JSON='[
+  {
+    "email": "account1@example.com",
+    "username": "user1",
+    "password": "password1"
+  },
+  {
+    "email": "account2@example.com", 
+    "username": "user2",
+    "password": "password2"
+  }
+]'
+```
+
+### Tor Browser パス
+
+スクレイパーは一般的な場所で Tor Browser を自動検索します：
+
+- **Linux**: `/opt/torbrowser`, `/usr/local/bin/tor-browser`
+- **macOS**: `/Applications/Tor Browser.app`
+- **Windows**: `C:\Users\{user}\Desktop\Tor Browser`
+- **Docker**: `/opt/torbrowser`
+
+## 機能詳細
+
+### ログイン機能
+
+- **マルチステップログインフロー**: ユーザー名/メール → 異常なアクティビティ確認 → パスワード → 2FA
+- **二要素認証対応**: メール認証とアプリ認証の両方をサポート
+- **セッション管理**: クッキーの永続化で再ログインを回避
+- **エラーハンドリング**: 包括的なリトライ機構
+
+### 検出回避機能
+
+- **人間らしい入力**: 文字毎のタイピング遅延
+- **ランダム遅延**: アクション間の自然な間隔
+- **User-Agent ローテーション**: 検出を回避
+- **JavaScriptによる要素操作**: 無効化された要素への対応
+
+### データ管理
+
+- **構造化保存**: データタイプ別の自動分類
+- **メタデータ追跡**: スクレイピングセッションの詳細記録
+- **バックアップ機能**: 重要なデータの自動バックアップ
+- **Cookie管理**: セッション状態の永続化
+
+## トラブルシューティング
 
 ### よくある問題
 
-**Tor接続に失敗する**
-```bash
-# コンテナのログを確認
-make logs
+#### 1. Tor 接続エラー
 
-# コンテナを再起動
-make stop && make run
+```bash
+# Tor の状態を確認
+make shell
+curl --socks5 localhost:9150 http://httpbin.org/ip
 ```
 
-**ChromeDriverエラー**
-- webdriver-managerが自動で最新版をダウンロードします
-- コンテナを再ビルドしてください: `make clean && make build`
+#### 2. ファイル権限エラー
 
-**依存関係の問題**
 ```bash
-# ロックファイルの更新
-uv lock --upgrade
+# 権限テストを実行
+make test-permissions
 
-# 環境の再構築
-rm -rf .venv && uv sync --all-extras
+# データディレクトリをリセット
+make reset-data
 ```
 
-## 🔒 セキュリティと注意事項
+#### 3. 2FA 入力の問題
 
-- **合法的な使用のみ**: スクレーピング対象サイトの利用規約を必ず確認
-- **レート制限**: 過度なアクセスは避け、適切な間隔を設ける
-- **robots.txt**: サイトのrobot.txt を尊重する
-- **匿名性**: 完全な匿名性は保証されません
+```bash
+# インタラクティブモードで実行
+make dev
+```
 
-## 📄 ライセンス
+#### 4. ログイン失敗
+
+- **CAPTCHA**: 手動ログインフローを使用
+- **認証情報確認**: 環境変数の設定を確認
+- **レート制限**: 適切な間隔を空けて再試行
+
+### デバッグ機能
+
+- **自動スクリーンショット**: エラー時の画面キャプチャ
+- **HTMLソース保存**: デバッグ用のページソース
+- **詳細ログ**: 各ステップの詳細な実行ログ
+- **メタデータ記録**: エラー発生時の詳細情報
+
+## 要件
+
+- Python 3.12+
+- Docker & Docker Compose
+- 1GB RAM 最小（2GB 推奨）
+- Tor Browser（ローカル実行時）
+
+## Contributing
+
+1. リポジトリをフォーク
+2. 機能ブランチを作成
+3. 変更を実装
+4. テストとリンティングを実行
+5. プルリクエストを提出
+
+## ライセンス
 
 MIT License
-
----
-
-**⚠️ 免責事項**: このツールは教育目的で作成されています。スクレーピングは法的制限や利用規約に従って実行してください。

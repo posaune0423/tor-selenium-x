@@ -1,0 +1,115 @@
+services:
+  tor-scraper:
+    build:
+      context: ../..
+      dockerfile: docker/development/Dockerfile
+    container_name: tor-selenium-scraper
+    volumes:
+      # ソースコードをマウント（開発時）
+      - ../../src:/app/src:ro
+      - ../../tests:/app/tests:ro
+      # データとログ出力用
+      - ../../data:/app/data
+    env_file:
+      - ../../.env
+    environment:
+      - PYTHONUNBUFFERED=1
+      - PYTHONPATH=/app
+      - TBB_PATH=/opt/torbrowser
+      - TOR_BROWSER_PATH=/opt/torbrowser
+      - DISPLAY=:99
+      # tbseleniumの設定
+      - TBSELENIUM_TBB_PATH=/opt/torbrowser
+    # 標準入力対応（2FA用）
+    stdin_open: true
+    tty: true
+    restart: unless-stopped
+    # リソース制限
+    mem_limit: 2g
+    cpus: 1.0
+    # ヘルスチェック（tbseleniumベース）
+    healthcheck:
+      test: ["CMD", "python", "-c", "import tbselenium; print('tbselenium available')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  # 開発用のワンショット実行
+  tor-scraper-dev:
+    build:
+      context: ../..
+      dockerfile: docker/development/Dockerfile
+      args:
+        - USER_ID=${USER_ID:-1000}
+        - GROUP_ID=${GROUP_ID:-1000}
+    container_name: tor-selenium-dev
+    volumes:
+      - ../../src:/app/src
+      - ../../tests:/app/tests
+      - ../../data:/app/data
+    env_file:
+      - ../../.env
+    environment:
+      - PYTHONUNBUFFERED=1
+      - PYTHONPATH=/app
+      - TBB_PATH=/opt/torbrowser
+      - TOR_BROWSER_PATH=/opt/torbrowser
+      - DISPLAY=:99
+      - TBSELENIUM_TBB_PATH=/opt/torbrowser
+      - USER_ID=${USER_ID:-1000}
+      - GROUP_ID=${GROUP_ID:-1000}
+    profiles:
+      - dev
+    command: ["uv", "run", "src/main.py"]
+    stdin_open: true
+    tty: true
+
+  # テスト実行用
+  tor-scraper-test:
+    build:
+      context: ../..
+      dockerfile: docker/development/Dockerfile
+    container_name: tor-selenium-test
+    volumes:
+      - ../../src:/app/src
+      - ../../tests:/app/tests
+      - ../../data:/app/data
+    env_file:
+      - ../../.env
+    environment:
+      - PYTHONUNBUFFERED=1
+      - PYTHONPATH=/app
+      - TBB_PATH=/opt/torbrowser
+      - TOR_BROWSER_PATH=/opt/torbrowser
+      - DISPLAY=:99
+      - TBSELENIUM_TBB_PATH=/opt/torbrowser
+    profiles:
+      - test
+    command: ["uv", "run", "pytest", "--cov=src", "--cov-report=html:data/coverage", "--cov-report=term-missing", "-v"]
+
+  # 一回限りのデータ収集用
+  tor-scraper-once:
+    build:
+      context: ../..
+      dockerfile: docker/development/Dockerfile
+    container_name: tor-selenium-once
+    volumes:
+      - ../../data:/app/data
+    env_file:
+      - ../../.env
+    environment:
+      - PYTHONUNBUFFERED=1
+      - PYTHONPATH=/app
+      - TBB_PATH=/opt/torbrowser
+      - TOR_BROWSER_PATH=/opt/torbrowser
+      - DISPLAY=:99
+      - TBSELENIUM_TBB_PATH=/opt/torbrowser
+    profiles:
+      - once
+    command: ["uv", "run", "src/main.py"]
+
+# ネットワーク設定
+networks:
+  default:
+    driver: bridge
