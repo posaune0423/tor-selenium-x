@@ -122,8 +122,8 @@ def _run_scraping_examples(scraper: XScraper) -> bool:
                 success = False
 
         # Example: Get user profile
-        logger.info("Getting profile for user 'twitter'...")
-        profile = scraper.get_user_profile("twitter")
+        logger.info("Getting profile for user 'elonmusk'...")
+        profile = scraper.get_user_profile("elonmusk")
         if profile:
             logger.info(f"Profile found: {profile.display_name}")
             if scraper.save_profile_to_json(profile, "twitter_profile.json"):

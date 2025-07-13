@@ -793,22 +793,38 @@ class XScraper:
             return None
 
         try:
+            # Clean username (remove @ if present)
+            clean_username = username.lstrip("@")
+
             # Navigate to user profile
-            profile_url = f"https://x.com/{username}"
+            profile_url = f"https://x.com/{clean_username}"
+            logger.info(f"Navigating to profile: {profile_url}")
             self.driver.get(profile_url)
             time.sleep(WAIT_MEDIUM)
 
-            profile = self._extract_profile_data(username)
+            # Wait for profile to load
+            time.sleep(2)
 
-            if profile:
-                logger.info(f"✅ Retrieved profile for: @{username}")
-                # Auto-save using new storage system
-                save_profiles([profile], target_user=username)
+            # Check if profile exists (not suspended/not found)
+            if self._check_profile_exists():
+                profile = self._extract_profile_data(clean_username)
 
-            return profile
+                if profile:
+                    logger.info(f"✅ Retrieved profile for: @{clean_username}")
+                    # Auto-save using new storage system
+                    save_profiles([profile], target_user=clean_username)
+                    return profile
+                else:
+                    logger.warning(f"Failed to extract profile data for: @{clean_username}")
+                    return None
+            else:
+                logger.warning(f"Profile not found or suspended: @{clean_username}")
+                return None
 
         except Exception as e:
-            logger.error(f"Error getting user profile: {e}")
+            logger.error(f"Error getting user profile for @{username}: {e}")
+            # Take debug snapshot for troubleshooting
+            self.take_debug_snapshot(f"profile_error_{username}")
             return None
 
     def _extract_tweet_data(self, element: WebElement) -> Tweet | None:
@@ -878,35 +894,245 @@ class XScraper:
             logger.debug(f"Failed to extract tweet data: {e}")
             return None
 
+    def _check_profile_exists(self) -> bool:
+        """Check if profile exists (not suspended/not found)"""
+        if not self.driver:
+            return False
+
+        try:
+            # Check for common error indicators
+            error_indicators = [
+                "This account doesn't exist",
+                "Account suspended",
+                "Something went wrong",
+                "User not found",
+                "このアカウントは存在しません",
+                "アカウントが凍結されています",
+            ]
+
+            page_source = self.driver.page_source.lower()
+
+            for indicator in error_indicators:
+                if indicator.lower() in page_source:
+                    logger.warning(f"Profile error detected: {indicator}")
+                    return False
+
+            # Check for profile elements that indicate successful load
+            profile_indicators = [
+                "[data-testid='UserName']",
+                "[data-testid='UserDescription']",
+                "[data-testid='UserProfileHeader_Items']",
+                "[data-testid='primaryColumn']",
+            ]
+
+            for indicator in profile_indicators:
+                try:
+                    element = self.driver.find_element(By.CSS_SELECTOR, indicator)
+                    if element:
+                        logger.debug(f"Profile indicator found: {indicator}")
+                        return True
+                except NoSuchElementException:
+                    continue
+
+            logger.warning("No profile indicators found")
+            return False
+
+        except Exception as e:
+            logger.error(f"Error checking profile existence: {e}")
+            return False
+
     def _extract_profile_data(self, username: str) -> UserProfile | None:
-        """Extract user profile data"""
+        """Extract user profile data using modern selectors"""
         if not self.driver:
             return None
 
         try:
-            # Extract display name
-            display_name_element = self.driver.find_element(By.CSS_SELECTOR, "[data-testid='UserName'] span")
-            display_name = display_name_element.text if display_name_element else username
+            logger.info(f"Extracting profile data for: @{username}")
 
-            # Extract bio
-            bio_element = self.driver.find_element(By.CSS_SELECTOR, "[data-testid='UserDescription'] span")
-            bio = bio_element.text if bio_element else ""
+            # Take debug snapshot for troubleshooting
+            self.take_debug_snapshot(f"profile_extraction_{username}")
 
-            # Extract follower count (simplified)
+            # Extract display name with multiple selectors
+            display_name = self._extract_display_name(username)
+
+            # Extract bio with multiple selectors
+            bio = self._extract_bio()
+
+            # Extract follower and following counts
             followers_count = self._extract_count_from_profile("followers")
             following_count = self._extract_count_from_profile("following")
 
-            return UserProfile(
+            # Extract additional profile info
+            verified = self._is_profile_verified()
+            location = self._extract_location()
+            website = self._extract_website()
+            joined_date = self._extract_joined_date()
+
+            profile = UserProfile(
                 username=username,
                 display_name=display_name,
                 bio=bio,
                 followers_count=followers_count,
                 following_count=following_count,
+                verified=verified,
+                location=location,
+                website=website,
+                joined_date=joined_date,
             )
 
+            logger.info(
+                f"✅ Profile extracted - Name: {display_name}, Bio: {bio[:50]}..., Followers: {followers_count}"
+            )
+            return profile
+
         except Exception as e:
-            logger.debug(f"Failed to extract profile data: {e}")
+            logger.error(f"Failed to extract profile data for @{username}: {e}")
             return None
+
+    def _extract_display_name(self, username: str) -> str:
+        """Extract display name with multiple selectors"""
+        if not self.driver:
+            return username
+
+        selectors = [
+            "[data-testid='UserName'] span span",
+            "[data-testid='UserName'] span",
+            "h1[data-testid='UserName'] span",
+            "h1 span span",
+            ".css-1dbjc4n .css-901oao.r-18jsvk2",
+        ]
+
+        for selector in selectors:
+            try:
+                element = self.driver.find_element(By.CSS_SELECTOR, selector)
+                if element and element.text.strip():
+                    display_name = element.text.strip()
+                    logger.debug(f"Display name found with selector '{selector}': {display_name}")
+                    return display_name
+            except NoSuchElementException:
+                continue
+
+        # Fallback to username if no display name found
+        logger.warning(f"No display name found, using username: @{username}")
+        return username
+
+    def _extract_bio(self) -> str:
+        """Extract bio with multiple selectors"""
+        if not self.driver:
+            return ""
+
+        selectors = [
+            "[data-testid='UserDescription'] span",
+            "[data-testid='UserDescription']",
+            ".css-1dbjc4n .css-901oao.r-18jsvk2.r-37j5jr",
+            ".ProfileHeaderCard-bio",
+        ]
+
+        for selector in selectors:
+            try:
+                element = self.driver.find_element(By.CSS_SELECTOR, selector)
+                if element and element.text.strip():
+                    bio = element.text.strip()
+                    logger.debug(f"Bio found with selector '{selector}': {bio[:100]}...")
+                    return bio
+            except NoSuchElementException:
+                continue
+
+        logger.debug("No bio found")
+        return ""
+
+    def _is_profile_verified(self) -> bool:
+        """Check if profile is verified"""
+        if not self.driver:
+            return False
+
+        selectors = [
+            "[data-testid='icon-verified']",
+            "[aria-label*='Verified']",
+            ".verified-icon",
+            "svg[aria-label*='Verified']",
+        ]
+
+        for selector in selectors:
+            try:
+                element = self.driver.find_element(By.CSS_SELECTOR, selector)
+                if element:
+                    logger.debug("Profile is verified")
+                    return True
+            except NoSuchElementException:
+                continue
+
+        return False
+
+    def _extract_location(self) -> str:
+        """Extract location from profile"""
+        if not self.driver:
+            return ""
+
+        selectors = [
+            "[data-testid='UserProfileHeader_Items'] span[data-testid='UserLocation']",
+            "[data-testid='UserLocation']",
+            ".ProfileHeaderCard-locationText",
+        ]
+
+        for selector in selectors:
+            try:
+                element = self.driver.find_element(By.CSS_SELECTOR, selector)
+                if element and element.text.strip():
+                    location = element.text.strip()
+                    logger.debug(f"Location found: {location}")
+                    return location
+            except NoSuchElementException:
+                continue
+
+        return ""
+
+    def _extract_website(self) -> str:
+        """Extract website from profile"""
+        if not self.driver:
+            return ""
+
+        selectors = [
+            "[data-testid='UserProfileHeader_Items'] a[href*='http']",
+            "[data-testid='UserUrl'] a",
+            ".ProfileHeaderCard-urlText a",
+        ]
+
+        for selector in selectors:
+            try:
+                element = self.driver.find_element(By.CSS_SELECTOR, selector)
+                if element:
+                    href = element.get_attribute("href")
+                    if href:
+                        logger.debug(f"Website found: {href}")
+                        return href
+            except NoSuchElementException:
+                continue
+
+        return ""
+
+    def _extract_joined_date(self) -> str:
+        """Extract joined date from profile"""
+        if not self.driver:
+            return ""
+
+        selectors = [
+            "[data-testid='UserProfileHeader_Items'] span[data-testid='UserJoinDate']",
+            "[data-testid='UserJoinDate']",
+            ".ProfileHeaderCard-joinDateText",
+        ]
+
+        for selector in selectors:
+            try:
+                element = self.driver.find_element(By.CSS_SELECTOR, selector)
+                if element and element.text.strip():
+                    joined_date = element.text.strip()
+                    logger.debug(f"Joined date found: {joined_date}")
+                    return joined_date
+            except NoSuchElementException:
+                continue
+
+        return ""
 
     def _extract_metric(self, element: WebElement, metric_type: str) -> int:
         """Extract metric from tweet element"""
@@ -923,21 +1149,90 @@ class XScraper:
             return 0
 
     def _extract_count_from_profile(self, count_type: str) -> int:
-        """Extract follower/following count from profile"""
+        """Extract follower/following count from profile with multiple selectors"""
         if not self.driver:
             return 0
 
         try:
-            count_elements = self.driver.find_elements(By.CSS_SELECTOR, "a[href*='/followers'], a[href*='/following']")
-            for element in count_elements:
-                href = element.get_attribute("href")
-                if href and count_type in href:
-                    count_text = element.text
-                    numbers = "".join(filter(str.isdigit, count_text.replace(",", "")))
-                    return int(numbers) if numbers else 0
+            # Multiple selectors for different count types
+            selectors = [
+                f"a[href*='/{count_type}']",
+                f"[data-testid='UserProfileHeader_Items'] a[href*='/{count_type}']",
+                f"a[href$='/{count_type}']",
+                f"span[data-testid='UserProfileHeader_Items'] a[href*='/{count_type}']",
+            ]
+
+            for selector in selectors:
+                try:
+                    elements = self.driver.find_elements(By.CSS_SELECTOR, selector)
+                    for element in elements:
+                        href = element.get_attribute("href")
+                        if href and count_type in href:
+                            count_text = element.text
+                            if count_text:
+                                # Parse count text (e.g., "1.2K", "1,234", "12M")
+                                count = self._parse_count_text(count_text)
+                                if count is not None:
+                                    logger.debug(f"{count_type} count found: {count} (from text: {count_text})")
+                                    return count
+                except NoSuchElementException:
+                    continue
+
+            # Fallback: look for count in any text containing numbers
+            try:
+                all_links = self.driver.find_elements(By.CSS_SELECTOR, "a")
+                for link in all_links:
+                    href = link.get_attribute("href")
+                    if href and count_type in href:
+                        count_text = link.text
+                        if count_text:
+                            count = self._parse_count_text(count_text)
+                            if count is not None:
+                                logger.debug(f"{count_type} count found (fallback): {count}")
+                                return count
+            except Exception:
+                pass
+
+            logger.debug(f"No {count_type} count found")
             return 0
-        except Exception:
+
+        except Exception as e:
+            logger.debug(f"Error extracting {count_type} count: {e}")
             return 0
+
+    def _parse_count_text(self, count_text: str) -> int | None:
+        """Parse count text like '1.2K', '12M', '1,234' into integer"""
+        if not count_text:
+            return None
+
+        try:
+            # Remove common separators and spaces
+            clean_text = count_text.replace(",", "").replace(" ", "").strip()
+
+            # Handle K, M, B suffixes
+            if clean_text.endswith("K"):
+                number_part = clean_text[:-1]
+                multiplier = 1000
+            elif clean_text.endswith("M"):
+                number_part = clean_text[:-1]
+                multiplier = 1000000
+            elif clean_text.endswith("B"):
+                number_part = clean_text[:-1]
+                multiplier = 1000000000
+            else:
+                # Extract only digits
+                number_part = "".join(filter(str.isdigit, clean_text))
+                multiplier = 1
+
+            if number_part:
+                # Handle decimal numbers (e.g., "1.2K" -> 1200)
+                base_number = float(number_part) if "." in number_part else int(number_part)
+                return int(base_number * multiplier)
+
+        except (ValueError, TypeError):
+            pass
+
+        return None
 
     def save_tweets_to_json(self, tweets: list[Tweet], filename: str) -> bool:
         """

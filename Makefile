@@ -29,7 +29,7 @@ help:
 	@echo "  logs           - Show container logs"
 	@echo "  shell          - Open shell in container"
 	@echo "  stop           - Stop running containers"
-	@echo "  clean          - Remove Docker images and containers"
+	@echo "  clean          - Remove Docker images, containers, volumes and build cache"
 	@echo ""
 	@echo "🚀 Production Commands:"
 	@echo "  build-prod     - Build production image"
@@ -39,7 +39,7 @@ help:
 	@echo "  logs-prod      - Show production logs"
 	@echo "  shell-prod     - Open production shell"
 	@echo "  stop-prod      - Stop production containers"
-	@echo "  clean-prod     - Clean production environment"
+	@echo "  clean-prod     - Clean production environment (images, volumes, build cache)"
 	@echo ""
 	@echo "🧪 Local Development:"
 	@echo "  install        - Install dependencies"
@@ -92,7 +92,10 @@ stop:
 
 clean:
 	docker-compose -f $(DOCKER_DEV_COMPOSE) down --rmi all --volumes --remove-orphans
-	docker system prune -f
+	docker builder prune -a -f
+	docker image prune -a -f
+	docker volume prune -f
+	docker system prune -a -f
 
 # ====================
 # Production Environment
@@ -115,6 +118,10 @@ stop-prod:
 
 clean-prod:
 	docker-compose -f $(DOCKER_PROD_COMPOSE) down --rmi all --volumes --remove-orphans
+	docker builder prune -a -f
+	docker image prune -a -f
+	docker volume prune -f
+	docker system prune -a -f
 
 prod: build-prod run-prod
 
