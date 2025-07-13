@@ -1,0 +1,32 @@
+# Railway設定ファイル（railway.toml）
+# 既存のDockerfileを使用して定期実行を設定
+
+[build]
+dockerfilePath = "docker/production/Dockerfile"
+
+[deploy]
+startCommand = "bash docker/production/docker-entrypoint.sh && python -m src.main"
+
+# 注意: 定期実行（Cron）の設定はRailway Dashboard で行います
+# 以下のコマンドで設定できます:
+# 1. Railway Dashboard -> 該当プロジェクト -> Settings -> Cron
+# 2. Schedule: "0 0 * * *" (毎日午前0時)
+# 3. Command: "python -m src.main"
+
+# 必要な環境変数（Railway Dashboard で設定）
+# PYTHONUNBUFFERED=1
+# PYTHONDONTWRITEBYTECODE=1
+# DISPLAY=:99
+# TOR_BROWSER_PATH=/opt/torbrowser
+# TBB_PATH=/opt/torbrowser
+# TBSELENIUM_TBB_PATH=/opt/torbrowser
+# HEADLESS=true
+# USER_ID=1000
+# GROUP_ID=1000
+# DEFAULT_MAX_TWEETS=100
+# LOG_LEVEL=INFO
+
+# アプリケーション固有の環境変数（必要に応じて設定）
+# X_USERNAME=your_username
+# X_PASSWORD=your_password
+# X_EMAIL=your_email
